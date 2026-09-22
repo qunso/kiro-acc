@@ -30,6 +30,10 @@ export interface AccountRecord {
   group?: string
   tags?: string[]
   outboundProxyUrl?: string
+  /** Exit catalog id (native SS or legacy ss-exit broker) */
+  outboundExitId?: string
+  /** Proxy pool id — account binds to a pool of interchangeable exits */
+  outboundPoolId?: string
   /** runtime / pool fields */
   lastUsed?: number
   requestCount?: number

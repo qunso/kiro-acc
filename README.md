@@ -61,38 +61,41 @@ npm start
 | `QUOTA_RESET_MS` | `3600000` | 配额耗尽恢复窗口 |
 | `TOKEN_REFRESH_BEFORE_EXPIRY_SEC` | `300` | 提前刷新秒数 |
 | `PREFERRED_ENDPOINT` | `codewhisperer` | `codewhisperer` \| `amazonq` |
-| `HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY` | — | 全局出站代理：`http(s)://`、`socks5://`、`socks5h://`（账号字段 `outboundProxyUrl` 可覆盖） |
+| `HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY` | — | 全局出站代理：`http(s)://`、`socks5://`、`socks5h://`、`ss://`（账号字段 `outboundProxyUrl` 可覆盖） |
 
 ---
 
 
-## 出站代理（含 Shadowsocks / ss-local）
+## 出站代理（HTTP / SOCKS5 / 原生 Shadowsocks）
 
 支持：
 
 - `http://` / `https://` HTTP 代理
-- `socks5://` / `socks5h://` SOCKS5（`socks5h` 由代理侧解析 DNS，配合 `ss-local` 更合适）
+- `socks5://` / `socks5h://` SOCKS5（`socks5h` 由代理侧解析 DNS）
+- **`ss://` 原生 Shadowsocks AEAD**（进程内实现，**不需要** `sslocal` / `ss-local` / ss-exit broker）
+
+推荐 SS URL 形式（密码中的 `#` 需编码为 `%23`）：
+
+```
+ss://aes-256-gcm:SHARED_PASS%2317@1.2.3.4:60123
+```
+
+支持方法：`aes-256-gcm`（iqun 默认）、`chacha20-ietf-poly1305`、`aes-128-gcm`。仅 TCP；UDP 不需要。
 
 **全局**（`.env`）：
 
 ```bash
-ALL_PROXY=socks5h://127.0.0.1:1080
-# 或 HTTPS_PROXY=socks5h://127.0.0.1:1080
+ALL_PROXY=ss://aes-256-gcm:secret%230@ss.example.com:60123
+# 或仍可用 SOCKS：ALL_PROXY=socks5h://127.0.0.1:1080
 ```
 
 **单账号**（Admin 创建/更新时）：
 
 ```json
-{ "outboundProxyUrl": "socks5h://127.0.0.1:1080" }
+{ "outboundProxyUrl": "ss://aes-256-gcm:secret%2317@1.2.3.4:60123" }
 ```
 
-典型接法：本机先跑 `ss-local`（或 Clash/sing-box 的 SOCKS 端口），再把本地 SOCKS 地址填进上面配置。不支持直接填 `ss://` 节点链接。
-
-带用户名密码时：
-
-```bash
-ALL_PROXY=socks5h://user:pass@127.0.0.1:1080
-```
+仍兼容本机 `ss-local` / Clash SOCKS 端口。
 
 ## 添加账号
 
@@ -193,8 +196,142 @@ curl -N http://127.0.0.1:8787/v1/chat/completions \
 | PATCH | `/admin/pool/config` | 改策略/冷却等 |
 | POST | `/admin/pool/reset` | 重置断路器状态 |
 | GET | `/admin/usage` | 用量 |
+| GET | `/admin/exits` | 出口列表 |
+| POST | `/admin/exits/import` | 导入 SS catalog / 遗留 broker |
+| POST | `/admin/exits/assign` | sticky / rr 分配到账号（非池） |
+| GET/POST | `/admin/pools` | 列出 / upsert 出口池 |
+| GET/DELETE | `/admin/pools/:id` | 获取 / 删除池 |
+| PUT | `/admin/pools/:id/exits` | 设置池成员 exitIds |
+| POST | `/admin/pools/:id/assign` | stats 策略分配（useCount→banCount→hash） |
+| POST | `/admin/accounts/:id/rebind-exit` | ban 当前 exit 并换绑同池 |
+| POST | `/admin/exits/probe` | 可选 egress 探测（非主路径） |
+| POST | `/admin/exits/:id/disable` / `enable` | 禁用 / 启用 exit |
 
 ---
+
+
+## 出口隔离（原生 Shadowsocks，推荐）
+
+iqun 开启 `SS_PASS_SELECT=1`，密码约定 `SS_PASS#index` / `SS_PASS#exitIp` / `SS_PASS#tag`（见下）。kiro-acc **进程内**直连 SS AEAD，不再依赖 ss-exit broker / sslocal。
+
+### 1) 生成 catalog
+
+```bash
+export SS_PASS='your-shared-pass'
+export SS_METHOD=aes-256-gcm
+export SS_PORT=60123
+npm run gen-ss-exits -- --host YOUR_SS_HOST --ip-count 245 --id-prefix ss1
+# → data/ss-exits.json（含密码，已 gitignore）+ data/ss-exits.meta.json
+```
+
+### 2) 导入出口（SS 字段）
+
+```bash
+# 读取 catalog 后 POST（示例形状）
+curl -s http://127.0.0.1:8787/admin/exits/import \
+  -H "x-admin-token: $ADMIN_TOKEN" \
+  -H 'content-type: application/json' \
+  -d '{
+    "exits": [
+      {
+        "id": "ss1-0",
+        "server": "1.2.3.4",
+        "port": 60123,
+        "method": "aes-256-gcm",
+        "password": "SHARED_PASS#0",
+        "index": 0
+      },
+      {
+        "id": "ss1-17",
+        "server": "1.2.3.4",
+        "port": 60123,
+        "method": "aes-256-gcm",
+        "password": "SHARED_PASS#17",
+        "index": 17,
+        "exitIp": "203.0.113.17"
+      }
+    ]
+  }'
+```
+
+导入时会预计算 `outboundProxyUrl` 为 `ss://aes-256-gcm:SHARED_PASS%23N@host:port`。
+
+也可直接：
+
+```bash
+jq '{exits: .}' data/ss-exits.json | curl -s http://127.0.0.1:8787/admin/exits/import \
+  -H "x-admin-token: $ADMIN_TOKEN" -H 'content-type: application/json' -d @-
+```
+
+### 3) sticky / round-robin 分配
+
+```bash
+curl -s http://127.0.0.1:8787/admin/exits/assign \
+  -H "x-admin-token: $ADMIN_TOKEN" \
+  -H 'content-type: application/json' \
+  -d '{"strategy":"sticky"}'
+```
+
+会把选中的 exit 的 `ss://` URL 写入账号的 `outboundProxyUrl`（以及 `outboundExitId`）。**不会**调用任何 broker。
+
+账号字段：
+
+- `outboundProxyUrl` — `ss://` / `socks5(h)://` / `http(s)://`
+- `outboundExitId` — catalog id（可选）
+
+持久化：`data/exits.json`（可含 SS 字段与密码；请勿提交到 git）。
+
+### 4) Proxy pools（推荐：账号绑定出口池）
+
+账号绑定到 **pool**（可互换 SS exits），而不是单个永远固定的 URL。池内 exit 可混用：
+
+- `SS_PASS#<index>` — `index % len(IP_LIST)`
+- `SS_PASS#<exitIp>` — sticky bindto 该 IP（须在 host `IP_LIST`）
+- `SS_PASS#<tag>` — 既非十进制 index 也非 `IP_LIST` 内 IP 时，iqun 用 `hash(suffix)%N`（与 kiro-acc 共享 normalize-before-KDF）
+
+**选择策略**（`POST /admin/pools/:id/assign`）：`useCount` 升序 → `banCount` 升序 → `hash(accountId + '\0' + exitId)` 升序（同分粘滞）。
+
+```bash
+# 创建 / upsert 池
+curl -s http://127.0.0.1:8787/admin/pools \
+  -H "x-admin-token: $ADMIN_TOKEN" -H 'content-type: application/json' \
+  -d '{"id":"pool-a","name":"main","exitIds":["ss1-0","ss1-203.0.113.9"]}'
+
+# 或批量
+curl -s http://127.0.0.1:8787/admin/pools \
+  -H "x-admin-token: $ADMIN_TOKEN" -H 'content-type: application/json' \
+  -d '{"pools":[{"id":"pool-a","exitIds":["e0","e1"]}]}'
+
+# 设置成员
+curl -s -X PUT http://127.0.0.1:8787/admin/pools/pool-a/exits \
+  -H "x-admin-token: $ADMIN_TOKEN" -H 'content-type: application/json' \
+  -d '{"exitIds":["e0","e1","e2"]}'
+
+# 按 stats 策略分配账号（写入 outboundPoolId / outboundExitId / outboundProxyUrl，并 bump useCount）
+curl -s http://127.0.0.1:8787/admin/pools/pool-a/assign \
+  -H "x-admin-token: $ADMIN_TOKEN" -H 'content-type: application/json' \
+  -d '{"accountIds":[]}'
+
+# 手动 rebind（默认对当前 exit bumpBan + 短 cooldown，再选下一出口）
+curl -s http://127.0.0.1:8787/admin/accounts/ACCOUNT_ID/rebind-exit \
+  -H "x-admin-token: $ADMIN_TOKEN" -H 'content-type: application/json' \
+  -d '{}'
+```
+
+**封禁自动换绑**：上游返回 `TEMPORARILY_SUSPENDED` 时，若账号有 `outboundPoolId` + `outboundExitId`，会 `banCount++`（默认 cooldown 10min），再在同池选下一合格 exit。rebind 失败只打日志，不阻断 suspend 路径。
+
+**可选** `POST /admin/exits/probe`：egress IP 探测，**不是**分配主路径（catalog / gen 应自带 `#ip` / `#index`）。
+
+账号字段新增：`outboundPoolId`。持久化：`data/pools.json`。
+
+非池分配仍可用 `POST /admin/exits/assign`（sticky / round-robin）。
+
+### 遗留：ss-exit broker（可选）
+
+同机 [`ss-exit`](../ss-exit) broker 仍可通过 `brokerBase` 导入 / `ensure`（拉起本机 sslocal → socks5h）。**已不推荐**；优先原生 `ss://`。
+
+**说明**：sticky 出口隔离 ≠ 完整反封禁；本仓库仍不做设备指纹 / MITM。
+
 
 ## Docker
 

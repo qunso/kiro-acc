@@ -7,3 +7,7 @@ data/*.json
 coverage/
 .env.*
 !.env.example
+# ensure
+.env
+data/*.json
+!data/.gitkeep

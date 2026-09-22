@@ -22,6 +22,9 @@ import {
   type KiroToolUse,
   type KiroUsage,
 } from '../kiro/translator.js'
+import type { ExitsStore } from '../exits/store.js'
+import type { PoolsStore } from '../pools/store.js'
+import { rebindAccountExitAfterBan } from '../pools/rebind.js'
 
 export function listModelsHandler() {
   return (c: Context) =>
@@ -34,7 +37,46 @@ export function listModelsHandler() {
     })
 }
 
-export function chatCompletionsHandler(store: AccountStore, config: AppConfig) {
+export interface ChatHandlerDeps {
+  exits?: ExitsStore
+  pools?: PoolsStore
+}
+
+async function maybeRebindAfterSuspend(
+  store: AccountStore,
+  accountId: string,
+  deps?: ChatHandlerDeps,
+): Promise<void> {
+  if (!deps?.exits || !deps?.pools) return
+  const acc = store.get(accountId)
+  if (!acc?.outboundPoolId || !acc.outboundExitId) return
+  try {
+    const result = await rebindAccountExitAfterBan(acc, {
+      accounts: store,
+      exits: deps.exits,
+      pools: deps.pools,
+      bumpBan: true,
+    })
+    if (!result.ok) {
+      console.warn(`[openai] rebind after suspend failed for ${accountId}:`, result.error)
+    } else {
+      console.log(
+        `[openai] rebound ${accountId}: ${result.previousExitId} -> ${result.exitId} (pool ${result.poolId})`,
+      )
+    }
+  } catch (err) {
+    console.warn(
+      `[openai] rebind after suspend error for ${accountId}:`,
+      err instanceof Error ? err.message : err,
+    )
+  }
+}
+
+export function chatCompletionsHandler(
+  store: AccountStore,
+  config: AppConfig,
+  deps?: ChatHandlerDeps,
+) {
   return async (c: Context) => {
     let body: OpenAIChatRequest
     try {
@@ -104,7 +146,7 @@ export function chatCompletionsHandler(store: AccountStore, config: AppConfig) {
 
       try {
         if (stream) {
-          return await handleStream(c, store, account.id, body, payload, preferred, started)
+          return await handleStream(c, store, account.id, body, payload, preferred, started, deps)
         }
 
         const result = await callKiroApi(account, payload, {
@@ -140,6 +182,7 @@ export function chatCompletionsHandler(store: AccountStore, config: AppConfig) {
 
         if (reason === 'TEMPORARILY_SUSPENDED') {
           store.pool.markSuspended(account.id, reason, lastError.message)
+          await maybeRebindAfterSuspend(store, account.id, deps)
         }
 
         const errorType = classifyError(status, reason)
@@ -193,6 +236,7 @@ async function handleStream(
   payload: ReturnType<typeof openaiToKiro>,
   preferred: 'codewhisperer' | 'amazonq',
   started: number,
+  deps?: ChatHandlerDeps,
 ) {
   const account = store.pool.getAccount(accountId)
   if (!account) {
@@ -289,6 +333,7 @@ async function handleStream(
         const reason = err instanceof KiroApiError ? err.reason : undefined
         if (reason === 'TEMPORARILY_SUSPENDED') {
           store.pool.markSuspended(accountId, reason, message)
+          await maybeRebindAfterSuspend(store, accountId, deps)
         }
         store.pool.recordError(accountId, classifyError(status, reason), status)
         send({

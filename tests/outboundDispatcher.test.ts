@@ -37,6 +37,12 @@ describe('normalizeProxyUrl', () => {
     expect(r.url).toContain('10.0.0.2:1080')
   })
 
+  it('accepts ss:// and canonicalizes password encoding', () => {
+    const r = normalizeProxyUrl('ss://aes-256-gcm:secret%2317@1.2.3.4:60123')
+    expect(r.kind).toBe('ss')
+    expect(r.url).toBe('ss://aes-256-gcm:secret%2317@1.2.3.4:60123')
+  })
+
   it('rejects socks4', () => {
     expect(() => normalizeProxyUrl('socks4://127.0.0.1:1080')).toThrow(/SOCKS4/)
   })
@@ -107,9 +113,21 @@ describe('getOutboundDispatcher', () => {
     expect(d!.constructor.name).toBe('ProxyAgent')
   })
 
+  it('builds Agent for ss:// without throwing', () => {
+    const d = getOutboundDispatcher('ss://aes-256-gcm:secret%2317@127.0.0.1:60123')
+    expect(d).toBeTruthy()
+    expect(d!.constructor.name).toBe('Agent')
+  })
+
   it('caches by original url string', () => {
     const a = getOutboundDispatcher('socks5://127.0.0.1:1080')
     const b = getOutboundDispatcher('socks5://127.0.0.1:1080')
+    expect(a).toBe(b)
+  })
+
+  it('caches ss:// by canonical url', () => {
+    const a = getOutboundDispatcher('ss://aes-256-gcm:p%23x@10.0.0.1:1')
+    const b = getOutboundDispatcher('ss://aes-256-gcm:p%23x@10.0.0.1:1')
     expect(a).toBe(b)
   })
 })

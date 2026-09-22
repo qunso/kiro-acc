@@ -1,12 +1,14 @@
 /**
- * Outbound proxy dispatcher for HTTP(S) and SOCKS5 / SOCKS5h.
- * Uses undici ProxyAgent + Socks5ProxyAgent (experimental SOCKS5 in undici 7).
+ * Outbound proxy dispatcher for HTTP(S), SOCKS5 / SOCKS5h, and native Shadowsocks (ss://).
+ * Uses undici ProxyAgent + Socks5ProxyAgent + in-process SS AEAD Agent.
  */
 import {
   ProxyAgent,
   Socks5ProxyAgent,
   type Dispatcher,
 } from 'undici'
+import { createSsDispatcher } from './ss/dispatcher.js'
+import { buildSsUrl, parseSsUrl } from './ss/url.js'
 
 const dispatcherCache = new Map<string, Dispatcher>()
 
@@ -24,13 +26,13 @@ export function resolveOutboundProxyUrl(accountProxyUrl?: string | null): string
   return raw || undefined
 }
 
-export type ProxyKind = 'http' | 'socks5'
+export type ProxyKind = 'http' | 'socks5' | 'ss'
 
 /**
  * Normalize user-facing proxy URLs for undici constructors.
  * - http:// / https:// → ProxyAgent
- * - socks5:// / socks:// / socks5h:// → Socks5ProxyAgent (socks5h rewritten to socks5://;
- *   undici sends DOMAIN ATYP so DNS is resolved by the proxy — i.e. socks5h semantics)
+ * - socks5:// / socks:// / socks5h:// → Socks5ProxyAgent
+ * - ss:// → native Shadowsocks AEAD Agent
  */
 export function normalizeProxyUrl(raw: string): { kind: ProxyKind; url: string } {
   let parsed: URL
@@ -52,14 +54,20 @@ export function normalizeProxyUrl(raw: string): { kind: ProxyKind; url: string }
     return { kind: 'socks5', url: parsed.toString() }
   }
 
+  if (protocol === 'ss:') {
+    // Canonicalize so cache keys / passwords with `#` are stable
+    const ep = parseSsUrl(raw)
+    return { kind: 'ss', url: buildSsUrl(ep) }
+  }
+
   if (protocol === 'socks4:' || protocol === 'socks4a:') {
     throw new Error(
-      `SOCKS4 is not supported; use socks5:// or socks5h:// (got ${protocol} in ${raw})`,
+      `SOCKS4 is not supported; use socks5://, socks5h://, or ss:// (got ${protocol} in ${raw})`,
     )
   }
 
   throw new Error(
-    `Unsupported proxy protocol "${protocol}". Use http://, https://, socks5://, or socks5h://`,
+    `Unsupported proxy protocol "${protocol}". Use http://, https://, socks5://, socks5h://, or ss://`,
   )
 }
 
@@ -71,10 +79,18 @@ export function getOutboundDispatcher(proxyUrl?: string | null): Dispatcher | un
   if (cached) return cached
 
   const { kind, url } = normalizeProxyUrl(proxyUrl)
-  const dispatcher: Dispatcher =
-    kind === 'socks5' ? new Socks5ProxyAgent(url) : new ProxyAgent(url)
+  let dispatcher: Dispatcher
+  if (kind === 'ss') {
+    dispatcher = createSsDispatcher(url)
+  } else if (kind === 'socks5') {
+    dispatcher = new Socks5ProxyAgent(url)
+  } else {
+    dispatcher = new ProxyAgent(url)
+  }
 
+  // Cache under both the original string and the normalized url
   dispatcherCache.set(proxyUrl, dispatcher)
+  if (url !== proxyUrl) dispatcherCache.set(url, dispatcher)
   return dispatcher
 }
 
@@ -85,7 +101,7 @@ export function getDispatcherForAccount(accountProxyUrl?: string | null): Dispat
 
 /** Test helper / shutdown: close and clear cached dispatchers. */
 export async function closeOutboundDispatchers(): Promise<void> {
-  const agents = [...dispatcherCache.values()]
+  const agents = [...new Set(dispatcherCache.values())]
   dispatcherCache.clear()
   await Promise.all(
     agents.map(

@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>kiro-acc · Exits Admin</title>
+<style>
+:root{--bg:#0f1419;--card:#1a2332;--line:#2a3544;--text:#e7ecf3;--muted:#8b9bb4;--acc:#5b9cff;--ok:#3ecf8e;--bad:#ff6b6b;--warn:#ffb020}
+*{box-sizing:border-box}
+body{margin:0;font:14px/1.45 ui-sans-serif,system-ui,sans-serif;background:var(--bg);color:var(--text)}
+header{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--line);background:#121a24;position:sticky;top:0;z-index:5}
+h1{margin:0;font-size:18px;font-weight:650}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+input,select,textarea,button{font:inherit;border-radius:8px;border:1px solid var(--line);background:#0d1218;color:var(--text);padding:8px 10px}
+button{cursor:pointer;background:#243044}
+button.primary{background:var(--acc);border-color:transparent;color:#061018;font-weight:600}
+button.danger{background:#3a1d1d;border-color:#5c2a2a;color:#ffb4b4}
+main{padding:20px;max-width:1400px;margin:0 auto}
+.tabs{display:flex;gap:6px;margin-bottom:16px}
+.tabs button.active{background:var(--card);border-color:var(--acc);color:var(--acc)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:16px}
+.muted{color:var(--muted)}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+th{color:var(--muted);font-weight:600;position:sticky;top:64px;background:var(--card)}
+.mono{font-family:ui-monospace,Menlo,monospace;font-size:12px;word-break:break-all}
+.badge{display:inline-block;padding:2px 7px;border-radius:999px;font-size:11px;border:1px solid var(--line)}
+.badge.ok{color:var(--ok);border-color:#245c43}
+.badge.bad{color:var(--bad);border-color:#5c2a2a}
+.badge.warn{color:var(--warn);border-color:#5c4a20}
+.stats{display:flex;gap:12px;flex-wrap:wrap}
+.stat{background:#121a24;border:1px solid var(--line);border-radius:10px;padding:10px 14px;min-width:110px}
+.stat b{display:block;font-size:20px}
+textarea{width:100%;min-height:180px}
+.toast{position:fixed;right:16px;bottom:16px;background:#102033;border:1px solid var(--acc);padding:10px 14px;border-radius:10px;display:none;max-width:380px;z-index:20}
+.toast.err{border-color:var(--bad)}
+pre.mono{white-space:pre-wrap;margin:0}
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>kiro-acc Admin</h1>
+    <div class="muted" id="healthLine">connecting…</div>
+  </div>
+  <div class="row">
+    <label class="muted">Admin Token</label>
+    <input id="token" type="password" placeholder="x-admin-token" style="width:220px"/>
+    <button class="primary" id="saveToken">保存</button>
+    <button id="reload">刷新</button>
+  </div>
+</header>
+<main>
+  <div class="tabs">
+    <button class="active" data-tab="exits">Exits</button>
+    <button data-tab="pools">Pools</button>
+    <button data-tab="import">Import JSON</button>
+  </div>
+
+  <section id="tab-exits">
+    <div class="card stats" id="exitStats"></div>
+    <div class="card">
+      <div class="row" style="justify-content:space-between;margin-bottom:10px">
+        <div class="row">
+          <input id="exitFilter" placeholder="过滤 id / server / ip / password" style="width:280px"/>
+          <select id="exitSort">
+            <option value="useAsc">少用优先</option>
+            <option value="banAsc">少封优先</option>
+            <option value="id">按 id</option>
+          </select>
+        </div>
+        <div class="muted" id="exitCount"></div>
+      </div>
+      <div style="overflow:auto;max-height:70vh">
+        <table>
+          <thead>
+            <tr><th>ID</th><th>Server</th><th>Password</th><th>Exit IP</th><th>use</th><th>ban</th><th>状态</th><th>操作</th></tr>
+          </thead>
+          <tbody id="exitBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section id="tab-pools" hidden>
+    <div class="card">
+      <div class="row" style="margin-bottom:10px">
+        <input id="poolId" placeholder="pool id" style="width:160px"/>
+        <input id="poolName" placeholder="name (optional)" style="width:160px"/>
+        <input id="poolExitIds" placeholder="exitIds 逗号分隔" style="width:360px"/>
+        <button class="primary" id="upsertPool">创建/更新池</button>
+      </div>
+      <div id="poolsList" class="muted">加载中…</div>
+    </div>
+  </section>
+
+  <section id="tab-import" hidden>
+    <div class="card">
+      <p class="muted">粘贴节点 <code>ss_exits</code> 生成的 JSON（整份或仅 exits 数组）。</p>
+      <textarea id="importJson" placeholder='{"exits":[{"id":"ss-ip-1.2.3.4","server":"x","port":60123,"method":"aes-256-gcm","password":"PASS#1.2.3.4","exitIp":"1.2.3.4"}]}'></textarea>
+      <div class="row" style="margin-top:10px">
+        <button class="primary" id="doImport">导入 Exits</button>
+      </div>
+    </div>
+    <div class="card">
+      <h3 style="margin:0 0 8px">节点上生成清单</h3>
+      <pre class="mono">SS_PASS='你的密码' ./cmd cmd ss_exits mode:ip host:节点公网IP port:60123 out:/tmp/ss-exits.json
+
+jq '{exits:.exits}' /tmp/ss-exits.json | curl -s http://本机:8787/admin/exits/import \
+  -H "x-admin-token: $ADMIN_TOKEN" -H 'content-type: application/json' -d @-</pre>
+    </div>
+  </section>
+</main>
+<div class="toast" id="toast"></div>
+<script>
+const $ = (id) => document.getElementById(id);
+const tokenKey = 'kiro-acc-admin-token';
+const state = { exits: [], pools: [] };
+$('token').value = localStorage.getItem(tokenKey) || '';
+
+function toast(msg, isErr) {
+  const t = $('toast');
+  t.textContent = msg;
+  t.className = 'toast' + (isErr ? ' err' : '');
+  t.style.display = 'block';
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => { t.style.display = 'none'; }, 3200);
+}
+function headers(json) {
+  const h = { 'x-admin-token': $('token').value.trim() };
+  if (json) h['content-type'] = 'application/json';
+  return h;
+}
+async function api(path, opts = {}) {
+  const res = await fetch('/admin' + path, { ...opts, headers: { ...headers(!!opts.body), ...(opts.headers || {}) } });
+  const text = await res.text();
+  let data; try { data = JSON.parse(text); } catch { data = { raw: text }; }
+  if (!res.ok) throw new Error((data && (data.error || data.message)) || (res.status + ' ' + text.slice(0, 160)));
+  return data;
+}
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function maskPass(p) {
+  if (!p) return '';
+  const i = p.indexOf('#');
+  if (i <= 0) return '••••';
+  return p.slice(0, Math.min(3, i)) + '•••' + p.slice(i);
+}
+function statusBadge(e) {
+  if (e.disabled) return '<span class="badge bad">disabled</span>';
+  if (e.cooldownUntil && e.cooldownUntil > Date.now()) return '<span class="badge warn">cooldown</span>';
+  return '<span class="badge ok">active</span>';
+}
+function renderExits() {
+  const q = ($('exitFilter').value || '').toLowerCase();
+  const sort = $('exitSort').value;
+  let list = state.exits.slice();
+  if (q) list = list.filter(e => JSON.stringify(e).toLowerCase().includes(q));
+  list.sort((a, b) => {
+    if (sort === 'useAsc') return (a.useCount||0) - (b.useCount||0) || (a.banCount||0) - (b.banCount||0);
+    if (sort === 'banAsc') return (a.banCount||0) - (b.banCount||0) || (a.useCount||0) - (b.useCount||0);
+    return String(a.id).localeCompare(String(b.id));
+  });
+  $('exitCount').textContent = list.length + ' / ' + state.exits.length;
+  const active = state.exits.filter(e => !e.disabled).length;
+  const uses = state.exits.reduce((s,e)=>s+(e.useCount||0),0);
+  const bans = state.exits.reduce((s,e)=>s+(e.banCount||0),0);
+  $('exitStats').innerHTML =
+    '<div class="stat"><span class="muted">Exits</span><b>'+state.exits.length+'</b></div>'+
+    '<div class="stat"><span class="muted">Active</span><b>'+active+'</b></div>'+
+    '<div class="stat"><span class="muted">Total use</span><b>'+uses+'</b></div>'+
+    '<div class="stat"><span class="muted">Total ban</span><b>'+bans+'</b></div>';
+  $('exitBody').innerHTML = list.map(e => {
+    const ip = e.exitIp || e.expectedExitIp || '';
+    const pass = e.password || '';
+    return '<tr>'+
+      '<td class="mono">'+esc(e.id)+'</td>'+
+      '<td class="mono">'+esc(e.server||'')+':'+esc(e.port||'')+'</td>'+
+      '<td class="mono" title="'+esc(pass)+'">'+esc(maskPass(pass))+' <button data-copy="'+esc(pass)+'">复制</button></td>'+
+      '<td class="mono">'+esc(ip)+'</td>'+
+      '<td>'+(e.useCount||0)+'</td>'+
+      '<td>'+(e.banCount||0)+'</td>'+
+      '<td>'+statusBadge(e)+'</td>'+
+      '<td>'+(e.disabled
+        ? '<button data-en="'+esc(e.id)+'">启用</button>'
+        : '<button class="danger" data-dis="'+esc(e.id)+'">禁用</button>')+'</td>'+
+      '</tr>';
+  }).join('') || '<tr><td colspan="8" class="muted">暂无 exits，请先 Import</td></tr>';
+}
+function renderPools() {
+  const el = $('poolsList');
+  if (!state.pools.length) { el.innerHTML = '<span class="muted">暂无池</span>'; return; }
+  el.innerHTML = state.pools.map(p => {
+    const ids = p.exitIds || [];
+    return '<div class="card" style="margin:0 0 10px">'+
+      '<div class="row" style="justify-content:space-between">'+
+      '<div><b>'+esc(p.id)+'</b> <span class="muted">'+esc(p.name||'')+'</span>'+
+      '<div class="mono muted">'+ids.length+' exits</div></div>'+
+      '<div class="row">'+
+      '<button class="primary" data-assign="'+esc(p.id)+'">分配账号</button>'+
+      '<button class="danger" data-delpool="'+esc(p.id)+'">删除</button>'+
+      '</div></div>'+
+      '<div class="mono" style="margin-top:8px">'+esc(ids.join(', '))+'</div></div>';
+  }).join('');
+}
+async function refresh() {
+  try {
+    const h = await fetch('/health').then(r => r.json());
+    $('healthLine').textContent = 'health ok · accounts '+(h.accounts ?? '?')+' · exits '+(h.exits ?? '?')+' · pools '+(h.pools ?? '?')+' · uptime '+Math.floor(h.uptime||0)+'s';
+  } catch (e) {
+    $('healthLine').textContent = 'health unreachable';
+  }
+  try {
+    const ex = await api('/exits');
+    state.exits = Array.isArray(ex.exits) ? ex.exits : (Array.isArray(ex) ? ex : []);
+    renderExits();
+  } catch (e) { toast('加载 exits: ' + e.message, true); }
+  try {
+    const pl = await api('/pools');
+    state.pools = pl.pools || [];
+    renderPools();
+  } catch (e) { $('poolsList').textContent = e.message; }
+}
+$('saveToken').onclick = () => { localStorage.setItem(tokenKey, $('token').value.trim()); toast('Token 已保存'); refresh(); };
+$('reload').onclick = () => refresh();
+$('exitFilter').oninput = () => renderExits();
+$('exitSort').onchange = () => renderExits();
+document.querySelectorAll('.tabs button').forEach(btn => {
+  btn.onclick = () => {
+    document.querySelectorAll('.tabs button').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    ['exits','pools','import'].forEach(t => { $('tab-'+t).hidden = (t !== btn.dataset.tab); });
+  };
+});
+document.body.addEventListener('click', async (ev) => {
+  const t = ev.target;
+  if (!(t instanceof HTMLElement)) return;
+  try {
+    if (t.dataset.copy != null) { await navigator.clipboard.writeText(t.dataset.copy); toast('已复制 password'); }
+    else if (t.dataset.dis) { await api('/exits/' + encodeURIComponent(t.dataset.dis) + '/disable', { method: 'POST' }); toast('已禁用'); refresh(); }
+    else if (t.dataset.en) { await api('/exits/' + encodeURIComponent(t.dataset.en) + '/enable', { method: 'POST' }); toast('已启用'); refresh(); }
+    else if (t.dataset.assign) {
+      const r = await api('/pools/' + encodeURIComponent(t.dataset.assign) + '/assign', { method: 'POST', body: '{}' });
+      toast('已分配 ' + ((r.assigned && r.assigned.length) || r.count || '')); refresh();
+    } else if (t.dataset.delpool) {
+      if (!confirm('删除池 ' + t.dataset.delpool + ' ?')) return;
+      await api('/pools/' + encodeURIComponent(t.dataset.delpool), { method: 'DELETE' });
+      toast('池已删除'); refresh();
+    }
+  } catch (e) { toast(e.message, true); }
+});
+$('upsertPool').onclick = async () => {
+  try {
+    const id = $('poolId').value.trim();
+    const exitIds = $('poolExitIds').value.split(/[\s,]+/).map(s => s.trim()).filter(Boolean);
+    if (!id || !exitIds.length) throw new Error('需要 pool id 和 exitIds');
+    await api('/pools', { method: 'POST', body: JSON.stringify({ id, name: $('poolName').value.trim() || undefined, exitIds }) });
+    toast('池已保存'); refresh();
+  } catch (e) { toast(e.message, true); }
+};
+$('doImport').onclick = async () => {
+  try {
+    let raw = $('importJson').value.trim();
+    if (!raw) throw new Error('JSON 为空');
+    let body = JSON.parse(raw);
+    if (Array.isArray(body)) body = { exits: body };
+    if (!body.exits && body.payload && Array.isArray(body.payload.exits)) body = { exits: body.payload.exits };
+    const r = await api('/exits/import', { method: 'POST', body: JSON.stringify(body) });
+    toast('导入成功: ' + ((r.exits && r.exits.length) || r.exitCount || ''));
+    refresh();
+  } catch (e) { toast(e.message, true); }
+};
+refresh();
+</script>
+</body>
+</html>
