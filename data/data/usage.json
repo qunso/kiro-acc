@@ -1,0 +1,10 @@
+{
+  "records": [],
+  "totals": {
+    "requests": 0,
+    "success": 0,
+    "failed": 0,
+    "inputTokens": 0,
+    "outputTokens": 0
+  }
+}
