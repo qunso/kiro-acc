@@ -1,8 +1,12 @@
 services:
   kiro-acc:
     build: .
+    image: kiro-acc:local
     ports:
-      - "8787:8787"
+      - "${PORT:-8787}:8787"
+    env_file:
+      - path: .env
+        required: false
     environment:
       HOST: "0.0.0.0"
       PORT: "8787"
@@ -14,6 +18,12 @@ services:
     volumes:
       - kiro-acc-data:/data
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8787/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
 volumes:
   kiro-acc-data:

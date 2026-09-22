@@ -336,12 +336,14 @@ curl -s http://127.0.0.1:8787/admin/accounts/ACCOUNT_ID/rebind-exit \
 ## Docker
 
 ```bash
-export API_KEY=your-api-key
-export ADMIN_TOKEN=your-admin-token
+cp .env.example .env
+# 编辑 .env：至少改掉 API_KEY / ADMIN_TOKEN
 docker compose up -d --build
 ```
 
-数据卷：`kiro-acc-data` → 容器内 `/data`。
+- 管理 UI：http://localhost:8787/admin/ui （页面里填 `ADMIN_TOKEN`）
+- 健康检查：http://localhost:8787/health
+- 数据卷：`kiro-acc-data` → 容器内 `/data`
 
 ---
 
