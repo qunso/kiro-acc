@@ -1,0 +1,29 @@
+{
+  "name": "kiro-acc",
+  "version": "1.0.0",
+  "description": "Headless Kiro multi-account manager + OpenAI-compatible API proxy (server edition)",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "AGPL-3.0-only",
+  "dependencies": {
+    "@hono/node-server": "^1.13.8",
+    "hono": "^4.7.2",
+    "undici": "^7.3.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.10",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.2",
+    "vitest": "^3.0.8"
+  }
+}

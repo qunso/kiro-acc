@@ -1,0 +1,19 @@
+services:
+  kiro-acc:
+    build: .
+    ports:
+      - "8787:8787"
+    environment:
+      HOST: "0.0.0.0"
+      PORT: "8787"
+      DATA_DIR: /data
+      API_KEY: ${API_KEY:-change-me-api-key}
+      ADMIN_TOKEN: ${ADMIN_TOKEN:-change-me-admin-token}
+      ACCOUNT_STRATEGY: ${ACCOUNT_STRATEGY:-round-robin}
+      PREFERRED_ENDPOINT: ${PREFERRED_ENDPOINT:-codewhisperer}
+    volumes:
+      - kiro-acc-data:/data
+    restart: unless-stopped
+
+volumes:
+  kiro-acc-data:
