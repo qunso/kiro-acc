@@ -62,11 +62,13 @@ details.menu>summary{
 details.menu>summary::-webkit-details-marker{display:none}
 details.menu[open]>summary{border-color:var(--acc);color:var(--acc)}
 .menu-panel{
-  position:absolute;right:0;top:calc(100% + 4px);z-index:40;
+  /* fixed so table-wrap overflow cannot clip the panel */
+  position:fixed;z-index:1000;
   min-width:168px;padding:6px;border-radius:10px;
   background:#121a24;border:1px solid var(--line);
   box-shadow:0 12px 32px rgba(0,0,0,.45);
   display:flex;flex-direction:column;gap:2px;
+  max-height:min(55vh, 420px);overflow:auto;
 }
 .menu-panel button{
   width:100%;text-align:left;background:transparent;border:1px solid transparent;
@@ -93,9 +95,9 @@ details.menu[open]>summary{border-color:var(--acc);color:var(--acc)}
   main{padding:12px}
   .probe-grid{grid-template-columns:1fr}
   .toast{left:12px;right:12px;bottom:12px;max-width:none}
-  .menu-panel{
-    position:fixed;left:12px;right:12px;top:auto;bottom:12px;
-    min-width:0;max-height:55vh;overflow:auto;
+  .menu-panel.menu-panel-sheet{
+    left:12px !important;right:12px !important;top:auto !important;bottom:12px !important;
+    min-width:0;width:auto;
   }
 }
 </style>
@@ -314,6 +316,59 @@ function actionMenu(items) {
     '<summary>操作 ▾</summary>' +
     '<div class="menu-panel">' + btns + '</div></details>';
 }
+function positionMenu(details) {
+  const panel = details.querySelector('.menu-panel');
+  const summary = details.querySelector('summary');
+  if (!panel || !summary) return;
+  const r = summary.getBoundingClientRect();
+  const gap = 4;
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  const sheet = vw <= 860;
+  panel.classList.toggle('menu-panel-sheet', sheet);
+  if (sheet) {
+    panel.style.left = '12px';
+    panel.style.right = '12px';
+    panel.style.top = 'auto';
+    panel.style.bottom = '12px';
+    panel.style.width = 'auto';
+    return;
+  }
+  // measure after visible
+  panel.style.left = '0px';
+  panel.style.top = '0px';
+  panel.style.right = 'auto';
+  panel.style.bottom = 'auto';
+  panel.style.width = 'auto';
+  const pw = panel.offsetWidth || 168;
+  const ph = panel.offsetHeight || 200;
+  let left = r.right - pw;
+  let top = r.bottom + gap;
+  if (left < 8) left = 8;
+  if (left + pw > vw - 8) left = Math.max(8, vw - pw - 8);
+  if (top + ph > vh - 8) {
+    top = r.top - ph - gap;
+    if (top < 8) top = Math.max(8, vh - ph - 8);
+  }
+  panel.style.left = left + 'px';
+  panel.style.top = top + 'px';
+}
+function bindMenuPositioning(root) {
+  (root || document).querySelectorAll('details.menu').forEach((d) => {
+    if (d.dataset.menuBound) return;
+    d.dataset.menuBound = '1';
+    d.addEventListener('toggle', () => {
+      if (!d.open) return;
+      // close siblings
+      document.querySelectorAll('details.menu[open]').forEach((o) => {
+        if (o !== d) o.removeAttribute('open');
+      });
+      requestAnimationFrame(() => positionMenu(d));
+    });
+  });
+}
+const _origRenderAccounts = typeof renderAccounts === 'function' ? null : null;
+
 function renderAccounts() {
   const q = ($('accountFilter').value || '').toLowerCase();
   let list = state.accounts.slice();
@@ -446,6 +501,17 @@ function obsCard(title, obs) {
     row('egress', obs.egress)+
     '</dl></div>';
 }
+
+;['renderAccounts','renderPools','renderExits'].forEach((name) => {
+  const orig = window[name];
+  if (typeof orig !== 'function') return;
+  window[name] = function() {
+    const r = orig.apply(this, arguments);
+    bindMenuPositioning(document);
+    return r;
+  };
+});
+
 async function refresh() {
   try {
     const h = await fetch('/health').then(r => r.json());
@@ -495,7 +561,15 @@ document.body.addEventListener('change', (ev) => {
       burger.setAttribute('aria-expanded', open ? 'true' : 'false');
     });
   }
-  document.addEventListener('click', (ev) => {
+  
+window.addEventListener('scroll', () => {
+  document.querySelectorAll('details.menu[open]').forEach(positionMenu);
+}, true);
+window.addEventListener('resize', () => {
+  document.querySelectorAll('details.menu[open]').forEach(positionMenu);
+});
+
+document.addEventListener('click', (ev) => {
     const t = ev.target;
     if (!(t instanceof Element)) return;
     document.querySelectorAll('details.menu[open]').forEach((d) => {
