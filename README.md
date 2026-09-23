@@ -19,7 +19,7 @@
 
 | 能力 | 桌面版 (Electron) | 本服务端 |
 |------|-------------------|----------|
-| UI / 托盘 | ✅ Electron | `/admin/ui`（账户 / 代理池 / 出口 / 导入 / API 反代 / 订阅 / Webhook / 诊断 / TLS 探测） |
+| UI / 托盘 | ✅ Electron | `/admin/ui`（首页 / 账户 / 池 / 出口 / API / 订阅 / Webhook / 诊断 / 导入 / TLS / 设置） |
 | OpenAI 兼容反代 | ✅ | ✅ |
 | 多账号池 + 断路器 | ✅ | ✅ |
 | Claude Messages API | ✅ | ✅ `/v1/messages` |
@@ -248,6 +248,11 @@ Claude Code 可将 `ANTHROPIC_BASE_URL` 指到 `http://127.0.0.1:8787`，`ANTHRO
 | POST | `/admin/webhooks/:id/test` | 测试发送 |
 | POST | `/admin/webhooks/:id/enable` / `disable` | 启用 / 停用 |
 | POST | `/admin/diagnose` | 账号 Token + 粘性出口 + TLS 观测诊断 |
+| GET | `/admin/dashboard` | 首页汇总 |
+| GET | `/admin/config-sync/export` | 导出非密钥运维配置 |
+| POST | `/admin/config-sync/import` | 合并导入（需 `confirm:true`） |
+| GET/PATCH | `/admin/settings` | 运行参数 / ops settings |
+| GET | `/admin/about` | 版本 / git / health |
 | GET | `/admin/exits` | 出口列表 |
 | POST | `/admin/exits/import` | 导入 SS catalog / 遗留 broker |
 | POST | `/admin/exits/assign` | sticky / rr 分配到账号（非池） |

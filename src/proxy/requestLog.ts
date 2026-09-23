@@ -20,7 +20,7 @@ const DEFAULT_CAP = 500
 
 export class RequestLog {
   private entries: RequestLogEntry[] = []
-  constructor(private readonly cap = DEFAULT_CAP) {}
+  constructor(private cap = DEFAULT_CAP) {}
 
   push(partial: Omit<RequestLogEntry, 'id' | 'ts'> & { ts?: number; id?: string }): RequestLogEntry {
     const entry: RequestLogEntry = {
@@ -77,6 +77,16 @@ export class RequestLog {
 
   get capacity(): number {
     return this.cap
+  }
+
+  /** Resize ring buffer (keeps newest entries). Cap clamped to [50, 5000]. */
+  setCapacity(n: number): number {
+    const next = Math.max(50, Math.min(5000, Math.floor(Number(n) || DEFAULT_CAP)))
+    this.cap = next
+    if (this.entries.length > next) {
+      this.entries = this.entries.slice(-next)
+    }
+    return next
   }
 }
 

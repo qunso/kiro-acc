@@ -115,22 +115,24 @@ pre.docs{background:#0d1218;border:1px solid var(--line);border-radius:10px;padd
     <button type="button" class="burger" id="burger" aria-label="菜单" aria-expanded="false">☰</button>
   </div>
   <nav class="nav" id="nav">
-    <button class="active" data-tab="accounts">账户管理</button>
+    <button class="active" data-tab="home">首页</button>
+    <button data-tab="accounts">账户</button>
     <button data-tab="pools">代理池</button>
     <button data-tab="exits">出口</button>
-    <button data-tab="import">导入</button>
     <button data-tab="api">API 反代</button>
     <button data-tab="subs">订阅用量</button>
     <button data-tab="webhooks">Webhook</button>
     <button data-tab="diagnose">诊断</button>
+    <button data-tab="import">导入</button>
     <button data-tab="probe">TLS 探测</button>
+    <button data-tab="settings">设置 / 关于</button>
   </nav>
-  <div class="aside-foot muted">无头服务管理台 · P0/P1：账户 · API · 订阅 · Webhook · 诊断</div>
+  <div class="aside-foot muted">无头服务管理台 · P0–P2</div>
 </aside>
 <div class="content">
 <header>
   <div>
-    <h1 id="pageTitle">账户管理</h1>
+    <h1 id="pageTitle">首页</h1>
     <div class="muted" id="healthLine">connecting…</div>
   </div>
   <div class="row">
@@ -141,7 +143,84 @@ pre.docs{background:#0d1218;border:1px solid var(--line);border-radius:10px;padd
   </div>
 </header>
 <main>
-  <section id="tab-accounts">
+  
+  <section id="tab-home">
+    <div class="card stats" id="dashAccountStats"></div>
+    <div class="card stats" id="dashPoolStats"></div>
+    <div class="row" style="align-items:stretch;gap:12px;flex-wrap:wrap">
+      <div class="card" style="flex:1;min-width:260px">
+        <h2>快捷入口</h2>
+        <div class="row" id="dashShortcuts" style="gap:8px"></div>
+      </div>
+      <div class="card" style="flex:1;min-width:260px">
+        <h2>运行状态</h2>
+        <dl class="kv" id="dashHealth"></dl>
+      </div>
+    </div>
+    <div class="card">
+      <h2>最近用量</h2>
+      <p class="muted" id="dashUsageTotals"></p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>时间</th><th>账号</th><th>模型</th><th>结果</th><th>tokens</th><th>耗时</th></tr></thead>
+          <tbody id="dashUsageBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section id="tab-settings" hidden>
+    <div class="card">
+      <h2>运行参数</h2>
+      <p class="muted">账号选择策略、Token 刷新提前量、重试与冷却等（写入 data/config.json）。</p>
+      <div class="row" style="margin-bottom:8px">
+        <label class="muted">策略</label>
+        <select id="setStrategy">
+          <option value="round-robin">round-robin</option>
+          <option value="sticky">sticky</option>
+        </select>
+        <label class="muted">刷新提前(秒)</label>
+        <input id="setRefreshBefore" type="number" min="0" style="width:100px"/>
+        <label class="muted">最大重试</label>
+        <input id="setMaxRetries" type="number" min="0" max="10" style="width:80px"/>
+        <label class="muted">端点</label>
+        <select id="setEndpoint">
+          <option value="codewhisperer">codewhisperer</option>
+          <option value="amazonq">amazonq</option>
+        </select>
+      </div>
+      <div class="row" style="margin-bottom:8px">
+        <label class="muted">基础冷却(ms)</label>
+        <input id="setCooldown" type="number" min="0" style="width:120px"/>
+        <label class="muted">请求日志容量</label>
+        <input id="setLogCap" type="number" min="50" max="5000" style="width:100px"/>
+        <label class="muted">出口失败阈值</label>
+        <input id="setExitFail" type="number" min="1" max="20" style="width:80px"/>
+        <button class="primary" id="saveSettings">保存设置</button>
+      </div>
+      <p class="muted" id="settingsHint"></p>
+    </div>
+    <div class="card">
+      <h2>配置同步</h2>
+      <p class="muted">导出/导入非密钥运维配置：池定义（仅 exitIds）、Webhook（URL，secret 脱敏）、模型映射、池策略、请求日志容量。不含账号 Token、出口 password、API Key 明文。</p>
+      <div class="row" style="margin-bottom:8px">
+        <button class="primary" id="exportConfig">导出 JSON</button>
+        <button id="copyConfigExport">复制导出</button>
+        <button id="downloadConfigExport">下载</button>
+      </div>
+      <textarea id="configSyncBox" placeholder="粘贴导出的 ops-config JSON，或点导出载入…"></textarea>
+      <div class="row" style="margin-top:10px">
+        <button class="danger" id="importConfig">确认合并导入</button>
+        <span class="muted" id="configSyncNote"></span>
+      </div>
+    </div>
+    <div class="card">
+      <h2>关于</h2>
+      <dl class="kv" id="aboutKv"></dl>
+    </div>
+  </section>
+
+  <section id="tab-accounts" hidden>
     <div class="card stats" id="accountStats"></div>
     <div class="card">
       <p class="muted">分组 / 标签可写回账号；批量操作勾选后执行。出口 ID/IP 只读，由池绑定写入。无 IDE 切号。</p>
@@ -409,13 +488,15 @@ pre.docs{background:#0d1218;border:1px solid var(--line);border-radius:10px;padd
 const $ = (id) => document.getElementById(id);
 const tokenKey = 'kiro-acc-admin-token';
 const titles = {
-  accounts: '账户管理', pools: '代理池', exits: '出口', import: '导入',
-  api: 'API 反代', subs: '订阅用量', webhooks: 'Webhook', diagnose: '诊断', probe: 'TLS 探测'
+  home: '首页', accounts: '账户管理', pools: '代理池', exits: '出口', import: '导入',
+  api: 'API 反代', subs: '订阅用量', webhooks: 'Webhook', diagnose: '诊断',
+  probe: 'TLS 探测', settings: '设置 / 关于'
 };
 const state = {
   exits: [], pools: [], accounts: [], groups: [], tags: [], checked: new Set(),
   selected: new Set(), usage: null, apiMeta: null, apiKeys: [], modelMap: {},
   subs: null, webhooks: [], whEvents: [], exitFailThreshold: 3, lastDiagText: '',
+  dashboard: null, settings: null, lastConfigExport: '',
 };
 $('token').value = localStorage.getItem(tokenKey) || '';
 
@@ -764,7 +845,7 @@ async function reloadRequestLog() {
 
 function showTab(name) {
   document.querySelectorAll('#nav button').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
-  ['accounts','pools','exits','import','api','subs','webhooks','diagnose','probe'].forEach(t => {
+  ['home','accounts','pools','exits','import','api','subs','webhooks','diagnose','probe','settings'].forEach(t => {
     const el = $('tab-'+t); if (el) el.hidden = t !== name;
   });
   $('pageTitle').textContent = titles[name] || name;
@@ -776,6 +857,8 @@ function showTab(name) {
   if (name === 'subs') renderSubs();
   if (name === 'webhooks') renderWebhooks();
   if (name === 'diagnose') fillDiagAccounts();
+  if (name === 'home') renderDashboard();
+  if (name === 'settings') loadSettings();
 }
 
 function obsCard(title, obs) {
@@ -912,6 +995,91 @@ async function loadWebhooks() {
 }
 
 
+
+function renderDashboard() {
+  const d = state.dashboard;
+  if (!d) {
+    $('dashAccountStats').innerHTML = '<div class="muted">加载中…</div>';
+    return;
+  }
+  const a = d.accounts || {};
+  const p = d.pools || {};
+  const e = d.exits || {};
+  $('dashAccountStats').innerHTML =
+    '<div class="stat"><span class="muted">账号</span><b>'+(a.total||0)+'</b></div>'+
+    '<div class="stat"><span class="muted">启用</span><b>'+(a.enabled||0)+'</b></div>'+
+    '<div class="stat"><span class="muted">禁用</span><b>'+(a.disabled||0)+'</b></div>'+
+    '<div class="stat"><span class="muted">封禁</span><b>'+(a.suspended||0)+'</b></div>'+
+    '<div class="stat"><span class="muted">可用</span><b>'+(a.available||0)+'</b></div>';
+  $('dashPoolStats').innerHTML =
+    '<div class="stat"><span class="muted">代理池</span><b>'+(p.total||0)+'</b></div>'+
+    '<div class="stat"><span class="muted">池停用</span><b>'+(p.disabled||0)+'</b></div>'+
+    '<div class="stat"><span class="muted">已绑池账号</span><b>'+(p.boundAccounts||0)+'</b></div>'+
+    '<div class="stat"><span class="muted">出口</span><b>'+(e.total||0)+'</b></div>'+
+    '<div class="stat"><span class="muted">出口活跃</span><b>'+(e.active||0)+'</b></div>'+
+    '<div class="stat"><span class="muted">出口冷却</span><b>'+(e.cooldown||0)+'</b></div>';
+  const h = d.health || {};
+  $('dashHealth').innerHTML =
+    '<dt>策略</dt><dd class="mono">'+esc(h.strategy||'')+'</dd>'+
+    '<dt>uptime</dt><dd class="mono">'+esc(Math.floor(h.uptime||0))+'s</dd>'+
+    '<dt>请求日志</dt><dd class="mono">'+(d.requestLog? (d.requestLog.size+'/'+d.requestLog.capacity) : '—')+'</dd>';
+  $('dashShortcuts').innerHTML = (d.shortcuts||[]).map(s =>
+    '<button type="button" data-tab-jump="'+esc(s.tab)+'">'+esc(s.label)+'</button>'
+  ).join('');
+  const totals = (d.usage && d.usage.totals) || {};
+  $('dashUsageTotals').textContent =
+    '累计请求 '+(totals.requests||0)+' · 成功 '+(totals.success||0)+' · 失败 '+(totals.failed||0)+
+    ' · in '+(totals.inputTokens||0)+' / out '+(totals.outputTokens||0);
+  const recent = (d.usage && d.usage.recent) || [];
+  $('dashUsageBody').innerHTML = recent.map(r =>
+    '<tr>'+
+      '<td class="muted">'+esc(new Date(r.timestamp).toLocaleString())+'</td>'+
+      '<td class="mono">'+esc((r.accountId||'').slice(0,12))+'</td>'+
+      '<td class="mono">'+esc(r.model||'')+'</td>'+
+      '<td>'+(r.success?'<span class="badge ok">ok</span>':'<span class="badge bad">fail</span>')+'</td>'+
+      '<td class="mono">'+(r.inputTokens||0)+'+'+(r.outputTokens||0)+'</td>'+
+      '<td>'+esc(r.responseTimeMs)+'ms</td>'+
+    '</tr>'
+  ).join('') || '<tr><td colspan="6" class="muted">暂无用量记录</td></tr>';
+}
+
+async function loadDashboard() {
+  try {
+    state.dashboard = await api('/dashboard');
+    renderDashboard();
+  } catch (e) { toast('首页: '+e.message, true); }
+}
+
+async function loadSettings() {
+  try {
+    const s = await api('/settings');
+    state.settings = s;
+    const pc = s.poolConfig || {};
+    $('setStrategy').value = pc.accountStrategy || 'round-robin';
+    $('setRefreshBefore').value = pc.tokenRefreshBeforeExpirySec ?? 300;
+    $('setMaxRetries').value = pc.maxRetries ?? 3;
+    $('setEndpoint').value = pc.preferredEndpoint || 'codewhisperer';
+    $('setCooldown').value = pc.baseCooldownMs ?? 60000;
+    const ops = s.opsSettings || {};
+    $('setLogCap').value = ops.requestLogCapacity || (s.requestLog && s.requestLog.capacity) || 500;
+    $('setExitFail').value = s.exitFailThreshold ?? 3;
+    $('settingsHint').textContent = '请求日志 '+(s.requestLog? (s.requestLog.size+'/'+s.requestLog.capacity):'');
+    const ab = s.about || {};
+    const health = s.health || {};
+    $('aboutKv').innerHTML =
+      '<dt>版本</dt><dd class="mono">'+esc(ab.version||'')+'</dd>'+
+      '<dt>git</dt><dd class="mono">'+esc(ab.gitCommit||'—')+'</dd>'+
+      '<dt>Node</dt><dd class="mono">'+esc(ab.node||'')+'</dd>'+
+      '<dt>平台</dt><dd class="mono">'+esc(ab.platform||'')+'</dd>'+
+      '<dt>进程 uptime</dt><dd class="mono">'+esc(ab.uptimeSec||0)+'s</dd>'+
+      '<dt>健康</dt><dd class="mono">accounts='+esc(health.accounts)+' available='+esc(health.available)+
+      ' exits='+esc(health.exits)+' pools='+esc(health.pools)+' strategy='+esc(health.strategy)+'</dd>'+
+      '<dt>dataDir</dt><dd class="mono">'+esc((s.envHints&&s.envHints.dataDir)||'')+'</dd>'+
+      '<dt>listen</dt><dd class="mono">'+esc((s.envHints&& (s.envHints.host+':'+s.envHints.port))||'')+'</dd>';
+  } catch (e) { toast('设置: '+e.message, true); }
+}
+
+
 async function refresh() {
   try {
     const h = await fetch('/health').then(r => r.json());
@@ -953,6 +1121,7 @@ async function refresh() {
   await loadSubs();
   await loadWebhooks();
   fillDiagAccounts();
+  await loadDashboard();
 }
 
 $('saveToken').onclick = () => { localStorage.setItem(tokenKey, $('token').value.trim()); toast('Token 已保存'); refresh(); };
@@ -1299,6 +1468,67 @@ $('copyDiagReport').onclick = async () => {
   try {
     await navigator.clipboard.writeText(state.lastDiagText || $('diagReport').textContent || '');
     toast('报告已复制');
+  } catch (e) { toast(e.message, true); }
+};
+
+
+$('saveSettings').onclick = async () => {
+  try {
+    await api('/settings', { method: 'PATCH', body: JSON.stringify({
+      poolConfig: {
+        accountStrategy: $('setStrategy').value,
+        tokenRefreshBeforeExpirySec: Number($('setRefreshBefore').value),
+        maxRetries: Number($('setMaxRetries').value),
+        preferredEndpoint: $('setEndpoint').value,
+        baseCooldownMs: Number($('setCooldown').value),
+      },
+      opsSettings: { requestLogCapacity: Number($('setLogCap').value) },
+      exitFailThreshold: Number($('setExitFail').value),
+    }) });
+    toast('设置已保存'); loadSettings();
+  } catch (e) { toast(e.message, true); }
+};
+$('exportConfig').onclick = async () => {
+  try {
+    const r = await api('/config-sync/export');
+    state.lastConfigExport = JSON.stringify(r.bundle, null, 2);
+    $('configSyncBox').value = state.lastConfigExport;
+    $('configSyncNote').textContent = (r.warnings && r.warnings.length)
+      ? ('警告: ' + r.warnings.join('; '))
+      : ('已导出 · ' + new Date(r.bundle.exportedAt).toLocaleString() + ' · 不含密钥');
+    toast('配置已导出');
+  } catch (e) { toast(e.message, true); }
+};
+$('copyConfigExport').onclick = async () => {
+  try {
+    await navigator.clipboard.writeText($('configSyncBox').value || state.lastConfigExport || '');
+    toast('已复制');
+  } catch (e) { toast(e.message, true); }
+};
+$('downloadConfigExport').onclick = () => {
+  const raw = $('configSyncBox').value || state.lastConfigExport;
+  if (!raw) { toast('先导出', true); return; }
+  const blob = new Blob([raw], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'kiro-acc-ops-config.json';
+  a.click();
+  URL.revokeObjectURL(a.href);
+};
+$('importConfig').onclick = async () => {
+  try {
+    const raw = $('configSyncBox').value.trim();
+    if (!raw) throw new Error('粘贴或导出 JSON 后再导入');
+    if (!confirm('确认合并导入运维配置？不会写入账号 Token / 出口密码 / API Key 明文。')) return;
+    const bundle = JSON.parse(raw);
+    const r = await api('/config-sync/import', {
+      method: 'POST',
+      body: JSON.stringify({ bundle, confirm: true }),
+    });
+    toast('已合并导入');
+    $('configSyncNote').textContent = r.note || 'ok';
+    refresh();
+    loadSettings();
   } catch (e) { toast(e.message, true); }
 };
 

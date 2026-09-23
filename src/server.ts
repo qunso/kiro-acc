@@ -8,12 +8,14 @@ import type { PoolsStore } from './pools/store.js'
 import type { ApiKeyStore } from './apiKeys/store.js'
 import type { ModelMapStore } from './proxy/modelMapStore.js'
 import type { WebhookStore } from './webhooks/store.js'
+import type { OpsSettingsStore } from './admin/opsSettings.js'
 import { createAdminRoutes } from './admin/routes.js'
 import { loadAdminUiHtml } from './admin/uiHtml.js'
 import { apiKeyAuth } from './middleware/auth.js'
 import { chatCompletionsHandler, listModelsHandler } from './proxy/openaiHandler.js'
 import { countTokensHandler, messagesHandler } from './proxy/messagesHandler.js'
 import { setGlobalWebhookStore } from './webhooks/dispatch.js'
+import { globalRequestLog } from './proxy/requestLog.js'
 
 export interface ServerDeps {
   exits?: ExitsStore
@@ -21,6 +23,7 @@ export interface ServerDeps {
   apiKeys?: ApiKeyStore
   modelMap?: ModelMapStore
   webhooks?: WebhookStore
+  opsSettings?: OpsSettingsStore
 }
 
 export function createServer(
@@ -34,7 +37,13 @@ export function createServer(
   const apiKeys = extra?.apiKeys
   const modelMap = extra?.modelMap
   const webhooks = extra?.webhooks
+  const opsSettings = extra?.opsSettings
   setGlobalWebhookStore(webhooks)
+
+  if (opsSettings) {
+    const cap = opsSettings.get().requestLogCapacity
+    if (cap) globalRequestLog.setCapacity(cap)
+  }
 
   app.use('*', cors())
   app.use('*', logger())
@@ -70,7 +79,12 @@ export function createServer(
 
   app.route(
     '/admin',
-    createAdminRoutes(store, config, exits, pools, { apiKeys, modelMap, webhooks }),
+    createAdminRoutes(store, config, exits, pools, {
+      apiKeys,
+      modelMap,
+      webhooks,
+      opsSettings,
+    }),
   )
 
   app.notFound((c) =>

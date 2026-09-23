@@ -21,11 +21,19 @@ import { sendWebhookWithRetry } from '../webhooks/dispatch.js'
 import { signalDiagnoseFailed, signalRefreshFailed } from '../webhooks/signals.js'
 import { buildSubscriptionSummary, usageByAccount } from './subscription.js'
 import { diagnoseAccount } from './diagnose.js'
+import {
+  assertNoSecretsInBundle,
+  buildConfigSyncBundle,
+  parseConfigSyncBundle,
+} from './configSync.js'
+import { aboutInfo } from './about.js'
+import type { OpsSettingsStore } from './opsSettings.js'
 
 export interface AdminRouteExtras {
   apiKeys?: ApiKeyStore
   modelMap?: ModelMapStore
   webhooks?: WebhookStore
+  opsSettings?: OpsSettingsStore
 }
 
 export function createAdminRoutes(
@@ -40,6 +48,7 @@ export function createAdminRoutes(
   const apiKeys = extras?.apiKeys
   const modelMap = extras?.modelMap
   const webhooks = extras?.webhooks
+  const opsSettings = extras?.opsSettings
 
   function assignedExit(acc: AccountRecord) {
     if (!acc.outboundPoolId && !acc.outboundExitId) return null
@@ -1034,6 +1043,226 @@ export function createAdminRoutes(
       return c.json({ error: msg }, 400)
     }
   })
+
+
+  // --- Dashboard / config sync / settings (P2) ---
+
+  app.get('/dashboard', async (c) => {
+    const accounts = store.list()
+    const enabled = accounts.filter((a) => a.enabled !== false).length
+    const disabled = accounts.length - enabled
+    const suspended = accounts.filter((a) => a.suspended).length
+    const quota = store.pool.getQuotaStatus()
+    const pools = poolsStore?.list() || []
+    const exits = exitsStore?.get().exits || []
+    const now = Date.now()
+    const exitActive = exits.filter((e) => !e.disabled).length
+    const exitCooldown = exits.filter(
+      (e) => !e.disabled && e.cooldownUntil && e.cooldownUntil > now,
+    ).length
+    const exitDisabled = exits.filter((e) => e.disabled).length
+    const totalBan = exits.reduce((s, e) => s + (e.banCount || 0), 0)
+    const usage = await store.getUsage()
+    const recent = (usage.records || []).slice(-12).reverse()
+    return c.json({
+      accounts: {
+        total: accounts.length,
+        enabled,
+        disabled,
+        suspended,
+        available: store.pool.availableCount,
+        quota,
+      },
+      pools: {
+        total: pools.length,
+        disabled: pools.filter((p) => p.disabled).length,
+        boundAccounts: accounts.filter((a) => a.outboundPoolId).length,
+      },
+      exits: {
+        total: exits.length,
+        active: exitActive,
+        disabled: exitDisabled,
+        cooldown: exitCooldown,
+        totalBan,
+      },
+      usage: {
+        totals: usage.totals,
+        recent,
+      },
+      requestLog: { size: globalRequestLog.size, capacity: globalRequestLog.capacity },
+      health: {
+        strategy: store.pool.getStrategy(),
+        uptime: process.uptime(),
+      },
+      shortcuts: [
+        { tab: 'accounts', label: '账户管理' },
+        { tab: 'pools', label: '代理池' },
+        { tab: 'api', label: 'API 反代' },
+        { tab: 'subs', label: '订阅用量' },
+        { tab: 'webhooks', label: 'Webhook' },
+        { tab: 'diagnose', label: '诊断' },
+        { tab: 'settings', label: '设置 / 关于' },
+      ],
+    })
+  })
+
+  app.get('/config-sync/export', (c) => {
+    const bundle = buildConfigSyncBundle({
+      poolConfig: store.getPersistedConfig(),
+      pools: poolsStore?.list() || [],
+      modelMap: modelMap?.get() || {},
+      webhooks: webhooks?.list() || [],
+      exitFailThreshold: webhooks?.getExitFailThreshold() ?? 3,
+      apiKeys: (apiKeys?.listPublic() || []).map((k) => ({
+        id: k.id,
+        label: k.label,
+        createdAt: k.createdAt,
+        revokedAt: k.revokedAt,
+        active: k.active,
+      })),
+      opsSettings: opsSettings?.get() || { requestLogCapacity: globalRequestLog.capacity, uiPrefs: {} },
+    })
+    const warnings = assertNoSecretsInBundle(bundle)
+    return c.json({ bundle, warnings })
+  })
+
+  app.post('/config-sync/import', async (c) => {
+    const body = await c.req.json().catch(() => null)
+    const raw = body && typeof body === 'object' && 'bundle' in (body as object)
+      ? (body as { bundle: unknown; confirm?: boolean }).bundle
+      : body
+    const confirm = Boolean(
+      body && typeof body === 'object' && (body as { confirm?: boolean }).confirm,
+    )
+    if (!confirm) {
+      return c.json({ error: 'confirm:true is required to import (merge)' }, 400)
+    }
+    const parsed = parseConfigSyncBundle(raw)
+    if (!parsed.ok) return c.json({ error: parsed.error }, 400)
+    const bundle = parsed.bundle
+    const result: Record<string, unknown> = { merged: true }
+
+    if (bundle.poolConfig) {
+      result.poolConfig = await store.patchConfig(bundle.poolConfig)
+    }
+    if (bundle.pools && poolsStore) {
+      const pools = await poolsStore.upsertMany(bundle.pools)
+      result.pools = pools.length
+    }
+    if (bundle.modelMap && modelMap) {
+      result.modelMap = await modelMap.set(bundle.modelMap)
+    }
+    if (bundle.exitFailThreshold != null && webhooks) {
+      result.exitFailThreshold = await webhooks.setExitFailThreshold(bundle.exitFailThreshold)
+    }
+    if (bundle.webhooks && webhooks) {
+      let created = 0
+      let updated = 0
+      for (const w of bundle.webhooks) {
+        const existing = w.id ? webhooks.get(w.id) : undefined
+        if (existing) {
+          await webhooks.update(existing.id, {
+            label: w.label,
+            channel: w.channel,
+            url: w.url,
+            enabled: w.enabled,
+            events: w.events,
+            telegramChatId: w.telegramChatId,
+            maxRetries: w.maxRetries,
+            // keep existing secret when redacted / omitted
+          })
+          updated++
+        } else {
+          await webhooks.create({
+            label: w.label,
+            channel: w.channel,
+            url: w.url,
+            enabled: w.enabled,
+            events: w.events,
+            telegramChatId: w.telegramChatId,
+            maxRetries: w.maxRetries,
+          })
+          created++
+        }
+      }
+      result.webhooks = { created, updated }
+    }
+    if (bundle.opsSettings && opsSettings) {
+      const next = await opsSettings.patch(bundle.opsSettings)
+      if (next.requestLogCapacity) globalRequestLog.setCapacity(next.requestLogCapacity)
+      result.opsSettings = next
+    }
+    result.note = 'API keys metadata is export-only and was not imported. Account tokens and exit passwords are never part of this bundle.'
+    return c.json(result)
+  })
+
+  app.get('/settings', (c) => {
+    return c.json({
+      poolConfig: store.getPersistedConfig(),
+      opsSettings: opsSettings?.get() || {
+        requestLogCapacity: globalRequestLog.capacity,
+        uiPrefs: {},
+      },
+      exitFailThreshold: webhooks?.getExitFailThreshold() ?? 3,
+      requestLog: { size: globalRequestLog.size, capacity: globalRequestLog.capacity },
+      about: aboutInfo(),
+      health: {
+        status: 'ok',
+        accounts: store.pool.size,
+        available: store.pool.availableCount,
+        strategy: store.pool.getStrategy(),
+        exits: exitsStore?.listIds().length ?? 0,
+        pools: poolsStore?.list().length ?? 0,
+        uptime: process.uptime(),
+      },
+      envHints: {
+        host: config.host,
+        port: config.port,
+        dataDir: config.dataDir,
+        apiKeyConfigured: Boolean(config.apiKey),
+        adminTokenConfigured: Boolean(config.adminToken),
+      },
+    })
+  })
+
+  app.patch('/settings', async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as {
+      poolConfig?: PersistedConfig
+      opsSettings?: { requestLogCapacity?: number; uiPrefs?: { defaultTab?: string } }
+      exitFailThreshold?: number
+    }
+    const out: Record<string, unknown> = {}
+    if (body.poolConfig) {
+      out.poolConfig = await store.patchConfig(body.poolConfig)
+    }
+    if (body.opsSettings && opsSettings) {
+      const next = await opsSettings.patch(body.opsSettings)
+      if (next.requestLogCapacity) globalRequestLog.setCapacity(next.requestLogCapacity)
+      out.opsSettings = next
+    } else if (body.opsSettings?.requestLogCapacity != null) {
+      out.requestLogCapacity = globalRequestLog.setCapacity(body.opsSettings.requestLogCapacity)
+    }
+    if (body.exitFailThreshold != null && webhooks) {
+      out.exitFailThreshold = await webhooks.setExitFailThreshold(body.exitFailThreshold)
+    }
+    out.requestLog = { size: globalRequestLog.size, capacity: globalRequestLog.capacity }
+    return c.json(out)
+  })
+
+  app.get('/about', (c) =>
+    c.json({
+      ...aboutInfo(),
+      health: {
+        status: 'ok',
+        accounts: store.pool.size,
+        available: store.pool.availableCount,
+        strategy: store.pool.getStrategy(),
+        exits: exitsStore?.listIds().length ?? 0,
+        pools: poolsStore?.list().length ?? 0,
+        uptime: process.uptime(),
+      },
+    }),
+  )
 
   return app
 }

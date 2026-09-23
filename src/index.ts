@@ -6,6 +6,8 @@ import { PoolsStore } from './pools/store.js'
 import { ApiKeyStore } from './apiKeys/store.js'
 import { ModelMapStore } from './proxy/modelMapStore.js'
 import { WebhookStore } from './webhooks/store.js'
+import { OpsSettingsStore } from './admin/opsSettings.js'
+import { globalRequestLog } from './proxy/requestLog.js'
 import { createServer } from './server.js'
 
 async function main() {
@@ -28,7 +30,16 @@ async function main() {
   const webhooks = new WebhookStore(config.dataDir)
   await webhooks.init()
 
-  const app = createServer(store, config, exits, pools, { apiKeys, modelMap, webhooks })
+  const opsSettings = new OpsSettingsStore(config.dataDir)
+  await opsSettings.init()
+  globalRequestLog.setCapacity(opsSettings.get().requestLogCapacity ?? 500)
+
+  const app = createServer(store, config, exits, pools, {
+    apiKeys,
+    modelMap,
+    webhooks,
+    opsSettings,
+  })
 
   console.log(`[kiro-acc] dataDir=${config.dataDir}`)
   console.log(`[kiro-acc] strategy=${store.pool.getStrategy()} accounts=${store.pool.size}`)
@@ -37,6 +48,7 @@ async function main() {
   console.log(`[kiro-acc] apiKeys=${apiKeys.listPublic().filter((k) => k.active).length} (+env=${apiKeys.hasEnvKey() ? 'yes' : 'no'})`)
   console.log(`[kiro-acc] modelMap=${Object.keys(modelMap.get()).length}`)
   console.log(`[kiro-acc] webhooks=${webhooks.list().filter((w) => w.enabled).length}`)
+  console.log(`[kiro-acc] requestLogCapacity=${globalRequestLog.capacity}`)
   console.log(`[kiro-acc] listening on http://${config.host}:${config.port}`)
 
   serve({
