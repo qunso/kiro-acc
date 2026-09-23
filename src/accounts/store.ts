@@ -145,9 +145,13 @@ export class AccountStore {
     const now = Date.now()
     const id = input.id || randomUUID()
     if (this.accounts.has(id)) throw new Error(`Account id already exists: ${id}`)
+    if (!input.accessToken && !input.refreshToken) {
+      throw new Error('accessToken or refreshToken is required')
+    }
     const record: AccountRecord = {
       ...input,
       id,
+      accessToken: input.accessToken || '',
       label: input.label || input.email || id.slice(0, 8),
       enabled: input.enabled !== false,
       createdAt: now,

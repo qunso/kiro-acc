@@ -5,7 +5,8 @@
 - 多账号持久化 + Token 刷新
 - 账号池：round-robin / sticky + 断路器（指数退避）+ 配额冷却
 - OpenAI 兼容 API（`/v1/chat/completions`，支持 SSE 流式）
-- Admin REST（账号 CRUD、导入导出、池配置/统计）
+- Anthropic 兼容 Messages API（`/v1/messages`，支持 SSE 流式与 `count_tokens`）
+- Admin REST（账号 CRUD、OIDC/卡密导入、出口池、只读 TLS 探测）
 - Docker / docker-compose
 
 **本仓库不包含**：Electron UI、托盘、机器码/设备指纹伪装、MITM K-Proxy / 根证书注入。
@@ -18,10 +19,10 @@
 
 | 能力 | 桌面版 (Electron) | 本服务端 |
 |------|-------------------|----------|
-| UI / 托盘 | ✅ | ❌ |
+| UI / 托盘 | ✅ Electron | `/admin/ui`（账户管理 / 代理池 / 出口 / 导入 / TLS 探测） |
 | OpenAI 兼容反代 | ✅ | ✅ |
 | 多账号池 + 断路器 | ✅ | ✅ |
-| Claude Messages API | ✅ | ❌（可后续扩展） |
+| Claude Messages API | ✅ | ✅ `/v1/messages` |
 | MITM K-Proxy | ✅ | ❌（刻意省略） |
 | 机器码伪装 | ✅ | ❌（刻意省略） |
 | 无头 Docker 部署 | ❌ | ✅ |
@@ -176,6 +177,39 @@ curl -N http://127.0.0.1:8787/v1/chat/completions \
 
 占位/无效 Token 时，上游会返回明确错误（如 HTTP 403），服务会按断路器策略切号或将错误透传给客户端。
 
+### Claude Messages API
+
+与 OpenAI 聊天走同一账号池、Token 刷新、断路器和粘性 SS 出站。路径与桌面版一致：
+
+- `POST /v1/messages`
+- `POST /v1/messages/count_tokens`（按请求体长度估算，不打上游）
+- 别名：`POST /anthropic/v1/messages` 与 `POST /anthropic/v1/messages/count_tokens`
+
+认证与 `/v1/chat/completions` 相同：`Authorization: Bearer $API_KEY` 或 `x-api-key`。
+
+```bash
+curl -s http://127.0.0.1:8787/v1/messages \
+  -H "x-api-key: $API_KEY" \
+  -H "content-type: application/json" \
+  -H "anthropic-version: 2023-06-01" \
+  -d '{
+    "model": "claude-sonnet-4.5",
+    "max_tokens": 256,
+    "messages": [{"role":"user","content":"你好"}]
+  }'
+```
+
+流式：把 `"stream": true` 加上，响应为 Anthropic SSE（`message_start` / `content_block_delta` / `message_delta` / `message_stop`）。
+
+```bash
+curl -s http://127.0.0.1:8787/v1/messages/count_tokens \
+  -H "x-api-key: $API_KEY" \
+  -H "content-type: application/json" \
+  -d '{"messages":[{"role":"user","content":"你好"}]}'
+```
+
+Claude Code 可将 `ANTHROPIC_BASE_URL` 指到 `http://127.0.0.1:8787`，`ANTHROPIC_API_KEY` 填 `API_KEY`。本接口转发文本、图片（base64）、tools / tool_result；不改写 TLS 指纹。
+
 ---
 
 ## Admin API 摘要
@@ -190,8 +224,11 @@ curl -N http://127.0.0.1:8787/v1/chat/completions \
 | POST | `/admin/accounts/:id/disable` | 禁用 |
 | POST | `/admin/accounts/:id/refresh` | 强制刷新 Token |
 | POST | `/admin/accounts/:id/unsuspend` | 解除封禁标记 |
-| POST | `/admin/accounts/import` | 导入 JSON |
+| POST | `/admin/accounts/import` | 导入账号 JSON / OIDC / 卡密文本（`{"text":"..."}`） |
 | GET | `/admin/accounts/export` | 导出 |
+| POST | `/admin/accounts/:id/bind-pool` | 绑定代理池并分配出口（`{"poolId":"..."}`） |
+| POST | `/admin/accounts/:id/unbind-pool` | 解除池绑定 |
+| POST | `/admin/tls-probe` | 只读 JA3/JA4/ALPN/出口 IP 对比 |
 | GET | `/admin/pool/stats` | 池统计 |
 | PATCH | `/admin/pool/config` | 改策略/冷却等 |
 | POST | `/admin/pool/reset` | 重置断路器状态 |
@@ -203,6 +240,7 @@ curl -N http://127.0.0.1:8787/v1/chat/completions \
 | GET/DELETE | `/admin/pools/:id` | 获取 / 删除池 |
 | PUT | `/admin/pools/:id/exits` | 设置池成员 exitIds |
 | POST | `/admin/pools/:id/assign` | stats 策略分配（useCount→banCount→hash） |
+| POST | `/admin/pools/:id/disable` / `enable` | 停用 / 启用池 |
 | POST | `/admin/accounts/:id/rebind-exit` | ban 当前 exit 并换绑同池 |
 | POST | `/admin/exits/probe` | 可选 egress 探测（非主路径） |
 | POST | `/admin/exits/:id/disable` / `enable` | 禁用 / 启用 exit |
@@ -342,8 +380,62 @@ docker compose up -d --build
 ```
 
 - 管理 UI：http://localhost:8787/admin/ui （页面里填 `ADMIN_TOKEN`）
+  - **账户管理**：选代理池并绑定；行上只读显示已分配的出口 ID / 出口 IP
+  - **代理池**：勾选 SS 出口，创建、编辑成员、停用、把账号分配进池
+  - **出口**：查看 use/ban，启用或禁用单条出口
+  - **导入**：OIDC / 账号 JSON / 卡密，以及 exits JSON
+  - **TLS 探测**：选账号后一键对比粘性出站与直连的 JA4 / JA3 / ALPN / 出口 IP（只观测，不伪装）
 - 健康检查：http://localhost:8787/health
 - 数据卷：`kiro-acc-data` → 容器内 `/data`
+
+---
+
+## 管理界面
+
+打开 `http://127.0.0.1:8787/admin/ui`，在页头填入 `ADMIN_TOKEN`。侧栏沿用桌面版的信息架构（账户管理、代理池、导入），并保留出口列表和只读 TLS 探测。本页不提供机器码修改，也不提供用于模仿官方客户端指纹的 MITM。
+
+导入账号示例（OIDC，仅有 refresh token 时会在下次请求前刷新 access token）：
+
+```bash
+curl -s http://127.0.0.1:8787/admin/accounts/import \
+  -H "x-admin-token: $ADMIN_TOKEN" \
+  -H 'content-type: application/json' \
+  -d '{"accounts":[{"email":"you@example.com","refreshToken":"...","clientId":"...","clientSecret":"...","provider":"BuilderId"}]}'
+```
+
+卡密文本（密码字段会被忽略）：
+
+```bash
+curl -s http://127.0.0.1:8787/admin/accounts/import \
+  -H "x-admin-token: $ADMIN_TOKEN" \
+  -H 'content-type: application/json' \
+  -d '{"mode":"merge","text":"you@example.com----no_password----REFRESH----CLIENT_ID----CLIENT_SECRET----BuilderId"}'
+```
+
+把账号绑到池上（响应里的 `assignedExit.exitId` / `exitIp` 就是界面上的只读提示）：
+
+```bash
+curl -s http://127.0.0.1:8787/admin/accounts/ACCOUNT_ID/bind-pool \
+  -H "x-admin-token: $ADMIN_TOKEN" \
+  -H 'content-type: application/json' \
+  -d '{"poolId":"pool-a"}'
+```
+
+### 如何测试 JA4 按钮
+
+1. 导入至少一条带 `ss://` 字段的出口，创建代理池，在「账户管理」里把账号绑定到该池（行上应出现出口 ID 和出口 IP）。
+2. 打开「TLS 探测」，选中该账号，勾选「对比直连」，点「开始探测」。
+3. 服务会用该账号当前的粘性出站 Dispatcher **原样**请求 `https://tls.peet.ws/api/all`，再直连一次。页面分列展示 JA4、JA3、ALPN、HTTP 版本和出口 IP。
+4. 等价 API：
+
+```bash
+curl -s http://127.0.0.1:8787/admin/tls-probe \
+  -H "x-admin-token: $ADMIN_TOKEN" \
+  -H 'content-type: application/json' \
+  -d '{"accountId":"ACCOUNT_ID","compareDirect":true}'
+```
+
+`sticky.ja4` 是经账号出站看到的指纹，`direct.ja4` 是本进程直连基线。两者不同只说明路径不同，服务不会去对齐或伪造任何一方。
 
 ---
 

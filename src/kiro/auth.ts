@@ -206,6 +206,8 @@ export function isTokenExpiringSoon(
   account: AccountRecord,
   beforeExpirySec: number,
 ): boolean {
+  // OIDC imports may arrive with only a refresh token.
+  if (!account.accessToken) return true
   if (!account.expiresAt) return false
   return Date.now() + beforeExpirySec * 1000 >= account.expiresAt
 }

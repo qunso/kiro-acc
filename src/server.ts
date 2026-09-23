@@ -9,6 +9,7 @@ import { createAdminRoutes } from './admin/routes.js'
 import { loadAdminUiHtml } from './admin/uiHtml.js'
 import { apiKeyAuth } from './middleware/auth.js'
 import { chatCompletionsHandler, listModelsHandler } from './proxy/openaiHandler.js'
+import { countTokensHandler, messagesHandler } from './proxy/messagesHandler.js'
 
 export function createServer(
   store: AccountStore,
@@ -37,7 +38,16 @@ export function createServer(
   v1.use('*', apiKeyAuth(config))
   v1.get('/models', listModelsHandler())
   v1.post('/chat/completions', chatCompletionsHandler(store, config, { exits, pools }))
+  v1.post('/messages/count_tokens', countTokensHandler())
+  v1.post('/messages', messagesHandler(store, config, { exits, pools }))
   app.route('/v1', v1)
+
+  // Same handlers under the path the original desktop proxy also accepted.
+  const anthropic = new Hono()
+  anthropic.use('*', apiKeyAuth(config))
+  anthropic.post('/messages/count_tokens', countTokensHandler())
+  anthropic.post('/messages', messagesHandler(store, config, { exits, pools }))
+  app.route('/anthropic/v1', anthropic)
 
   // Visual admin (token entered in-page; API still requires x-admin-token)
   app.get('/admin/ui', (c) => c.html(loadAdminUiHtml()))
