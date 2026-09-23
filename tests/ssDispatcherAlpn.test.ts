@@ -1,7 +1,7 @@
 import net from 'node:net'
+import type { Duplex } from 'node:stream'
 import { Agent, request } from 'undici'
 import { describe, expect, it, vi } from 'vitest'
-import * as tunnel from '../src/net/ss/tunnel.js'
 import {
   alpnProtocolsForUndiciConnect,
   createSsDispatcher,
@@ -9,6 +9,21 @@ import {
 
 /** TLS extension type for ALPN (RFC 7301). JA4 counts this as extension 16. */
 const ALPN_EXTENSION = 16
+
+const tunnelBox = vi.hoisted(() => ({
+  socket: null as Duplex | null,
+}))
+
+vi.mock('../src/net/ss/tunnel.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/net/ss/tunnel.js')>()
+  return {
+    ...actual,
+    openSsTunnel: async () => {
+      if (!tunnelBox.socket) throw new Error('SS tunnel socket not installed')
+      return tunnelBox.socket
+    },
+  }
+})
 
 describe('alpnProtocolsForUndiciConnect', () => {
   it('matches undici 7 default connector (allowH2 unset → http/1.1)', () => {
@@ -50,7 +65,6 @@ function ja4AlpnToken(protocols: string[] | null): string {
   const first = protocols?.[0]
   if (!first) return '00'
   if (first === 'http/1.1') return 'h1'
-  if (first.startsWith('h')) return first.slice(0, 2)
   return first.slice(0, 2)
 }
 
@@ -61,7 +75,7 @@ async function captureDirectAgentClientHello(): Promise<Buffer> {
     server.listen(0, '127.0.0.1', () => resolve())
   })
   const port = (server.address() as net.AddressInfo).port
-  const agent = new Agent()
+  const agent = new Agent({ connectTimeout: 1000 })
   const hello = new Promise<Buffer>((resolve, reject) => {
     server.once('connection', (sock) => {
       readTlsRecord(sock).then(
@@ -88,11 +102,14 @@ async function captureDirectAgentClientHello(): Promise<Buffer> {
 
 async function captureSsClientHello(): Promise<Buffer> {
   const [local, remote] = await connectedPair()
-  const spy = vi.spyOn(tunnel, 'openSsTunnel').mockResolvedValue(local)
+  tunnelBox.socket = local
   const dispatcher = createSsDispatcher('ss://aes-256-gcm:secret@127.0.0.1:8388')
+  // A clean destroy emits 'close' on the TLS socket and not 'error', so the
+  // dispatcher would keep waiting on secureConnect. Pass an error so the
+  // handshake rejects and the Agent can close.
   const hello = readTlsRecord(remote).finally(() => {
     remote.destroy()
-    local.destroy()
+    local.destroy(new Error('tls probe done'))
   })
   const pending = request('https://example.com/', { dispatcher }).then(
     () => {},
@@ -101,7 +118,7 @@ async function captureSsClientHello(): Promise<Buffer> {
   try {
     return await hello
   } finally {
-    spy.mockRestore()
+    tunnelBox.socket = null
     await pending
     await dispatcher.close()
   }
