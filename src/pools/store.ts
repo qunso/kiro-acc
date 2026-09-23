@@ -82,6 +82,12 @@ export class PoolsStore {
     return this.upsert({ ...pool, exitIds })
   }
 
+  async setDisabled(id: string, disabled: boolean): Promise<ProxyPool> {
+    const pool = this.get(id)
+    if (!pool) throw new Error(`Unknown pool id: ${id}`)
+    return this.upsert({ ...pool, disabled: disabled ? true : undefined })
+  }
+
   getExitIds(poolId: string): string[] {
     const pool = this.get(poolId)
     if (!pool) throw new Error(`Unknown pool id: ${poolId}`)

@@ -3,26 +3,34 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>kiro-acc · Exits Admin</title>
+<title>kiro-acc · 账户管理</title>
 <style>
 :root{--bg:#0f1419;--card:#1a2332;--line:#2a3544;--text:#e7ecf3;--muted:#8b9bb4;--acc:#5b9cff;--ok:#3ecf8e;--bad:#ff6b6b;--warn:#ffb020}
 *{box-sizing:border-box}
 body{margin:0;font:14px/1.45 ui-sans-serif,system-ui,sans-serif;background:var(--bg);color:var(--text)}
+.shell{display:grid;grid-template-columns:220px 1fr;min-height:100vh}
+aside{background:#101820;border-right:1px solid var(--line);padding:18px 12px;position:sticky;top:0;height:100vh;display:flex;flex-direction:column;gap:8px}
+.brand{font-size:16px;font-weight:700}
+.nav{display:flex;flex-direction:column;gap:4px;margin-top:12px}
+.nav button{text-align:left;background:transparent;border:1px solid transparent;color:var(--muted);padding:10px 12px;border-radius:8px}
+.nav button.active{background:var(--card);color:var(--acc);border-color:#243044}
+.aside-foot{margin-top:auto;font-size:12px}
+.content{min-width:0}
 header{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--line);background:#121a24;position:sticky;top:0;z-index:5}
 h1{margin:0;font-size:18px;font-weight:650}
+h2{margin:0 0 8px;font-size:16px}
 .row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
 input,select,textarea,button{font:inherit;border-radius:8px;border:1px solid var(--line);background:#0d1218;color:var(--text);padding:8px 10px}
 button{cursor:pointer;background:#243044}
 button.primary{background:var(--acc);border-color:transparent;color:#061018;font-weight:600}
 button.danger{background:#3a1d1d;border-color:#5c2a2a;color:#ffb4b4}
-main{padding:20px;max-width:1400px;margin:0 auto}
-.tabs{display:flex;gap:6px;margin-bottom:16px}
-.tabs button.active{background:var(--card);border-color:var(--acc);color:var(--acc)}
+button.ghost{background:transparent}
+main{padding:20px;max-width:1400px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:16px}
 .muted{color:var(--muted)}
 table{width:100%;border-collapse:collapse;font-size:13px}
 th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
-th{color:var(--muted);font-weight:600;position:sticky;top:64px;background:var(--card)}
+th{color:var(--muted);font-weight:600}
 .mono{font-family:ui-monospace,Menlo,monospace;font-size:12px;word-break:break-all}
 .badge{display:inline-block;padding:2px 7px;border-radius:999px;font-size:11px;border:1px solid var(--line)}
 .badge.ok{color:var(--ok);border-color:#245c43}
@@ -31,16 +39,90 @@ th{color:var(--muted);font-weight:600;position:sticky;top:64px;background:var(--
 .stats{display:flex;gap:12px;flex-wrap:wrap}
 .stat{background:#121a24;border:1px solid var(--line);border-radius:10px;padding:10px 14px;min-width:110px}
 .stat b{display:block;font-size:20px}
-textarea{width:100%;min-height:180px}
-.toast{position:fixed;right:16px;bottom:16px;background:#102033;border:1px solid var(--acc);padding:10px 14px;border-radius:10px;display:none;max-width:380px;z-index:20}
+textarea{width:100%;min-height:160px}
+.toast{position:fixed;right:16px;bottom:16px;background:#102033;border:1px solid var(--acc);padding:10px 14px;border-radius:10px;display:none;max-width:420px;z-index:20}
 .toast.err{border-color:var(--bad)}
-pre.mono{white-space:pre-wrap;margin:0}
+.tip{display:inline-block;padding:2px 8px;border-radius:8px;background:#102033;border:1px solid #243044}
+.checks{max-height:220px;overflow:auto;border:1px solid var(--line);border-radius:8px;padding:8px;display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:4px}
+.probe-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.kv{display:grid;grid-template-columns:88px 1fr;gap:4px 8px;margin:0}
+.kv dt{color:var(--muted)}
+.kv dd{margin:0}
+
+.table-wrap{overflow:auto;-webkit-overflow-scrolling:touch;max-width:100%}
+.aside-top{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}
+.burger{display:none;min-width:44px;min-height:40px;align-items:center;justify-content:center}
+details.menu{position:relative;display:inline-block}
+details.menu>summary{
+  list-style:none;cursor:pointer;user-select:none;
+  min-width:44px;min-height:36px;padding:8px 12px;
+  display:inline-flex;align-items:center;justify-content:center;gap:4px;
+  border-radius:8px;border:1px solid var(--line);background:#0d1218;color:var(--text);
+}
+details.menu>summary::-webkit-details-marker{display:none}
+details.menu[open]>summary{border-color:var(--acc);color:var(--acc)}
+.menu-panel{
+  position:absolute;right:0;top:calc(100% + 4px);z-index:40;
+  min-width:168px;padding:6px;border-radius:10px;
+  background:#121a24;border:1px solid var(--line);
+  box-shadow:0 12px 32px rgba(0,0,0,.45);
+  display:flex;flex-direction:column;gap:2px;
+}
+.menu-panel button{
+  width:100%;text-align:left;background:transparent;border:1px solid transparent;
+  padding:10px 12px;min-height:40px;border-radius:8px;color:var(--text);
+}
+.menu-panel button:hover,.menu-panel button:focus{background:#1a2332;border-color:#243044}
+.menu-panel button.danger{color:#ffb4b4}
+.menu-panel button.danger:hover{background:#3a1d1d;border-color:#5c2a2a}
+@media(max-width:860px){
+  .shell{grid-template-columns:1fr}
+  aside{
+    position:sticky;top:0;z-index:25;height:auto;
+    border-right:none;border-bottom:1px solid var(--line);
+    padding:10px 12px;
+  }
+  .aside-foot{display:none}
+  .burger{display:inline-flex}
+  .nav{display:none;flex-direction:column;flex-wrap:nowrap;margin-top:8px;padding-top:8px;border-top:1px solid var(--line)}
+  aside.nav-open .nav{display:flex}
+  .nav button{min-height:44px;width:100%}
+  header{padding:12px;gap:10px}
+  header .row{width:100%}
+  header input#token{flex:1;min-width:0;width:auto}
+  main{padding:12px}
+  .probe-grid{grid-template-columns:1fr}
+  .toast{left:12px;right:12px;bottom:12px;max-width:none}
+  .menu-panel{
+    position:fixed;left:12px;right:12px;top:auto;bottom:12px;
+    min-width:0;max-height:55vh;overflow:auto;
+  }
+}
 </style>
 </head>
 <body>
+<div class="shell">
+<aside id="aside">
+  <div class="aside-top">
+    <div>
+      <div class="brand">kiro-acc</div>
+      <div class="muted">账户管理器</div>
+    </div>
+    <button type="button" class="burger" id="burger" aria-label="菜单" aria-expanded="false">☰</button>
+  </div>
+  <nav class="nav" id="nav">
+    <button class="active" data-tab="accounts">账户管理</button>
+    <button data-tab="pools">代理池</button>
+    <button data-tab="exits">出口</button>
+    <button data-tab="import">导入</button>
+    <button data-tab="probe">TLS 探测</button>
+  </nav>
+  <div class="aside-foot muted">JA4 只做观测对比，不伪装 ClientHello。</div>
+</aside>
+<div class="content">
 <header>
   <div>
-    <h1>kiro-acc Admin</h1>
+    <h1 id="pageTitle">账户管理</h1>
     <div class="muted" id="healthLine">connecting…</div>
   </div>
   <div class="row">
@@ -51,13 +133,42 @@ pre.mono{white-space:pre-wrap;margin:0}
   </div>
 </header>
 <main>
-  <div class="tabs">
-    <button class="active" data-tab="exits">Exits</button>
-    <button data-tab="pools">Pools</button>
-    <button data-tab="import">Import JSON</button>
-  </div>
+  <section id="tab-accounts">
+    <div class="card stats" id="accountStats"></div>
+    <div class="card">
+      <p class="muted">在行内选择代理池并点「绑定」。分配完成后，出口 ID 和出口 IP 以只读提示显示，由池策略写入。</p>
+      <div class="row" style="margin-bottom:10px">
+        <input id="accountFilter" placeholder="过滤标签 / 邮箱 / 出口" style="width:280px"/>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>账号</th><th>认证</th><th>状态</th><th>代理池</th><th>已分配出口</th><th>操作</th></tr>
+          </thead>
+          <tbody id="accountBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
 
-  <section id="tab-exits">
+  <section id="tab-pools" hidden>
+    <div class="card">
+      <h2>创建 / 更新代理池</h2>
+      <p class="muted">池是一组可互换的 SS 出口。账号绑定到池，而不是写死单条 URL。</p>
+      <div class="row" style="margin-bottom:10px">
+        <input id="poolId" placeholder="pool id" style="width:160px"/>
+        <input id="poolName" placeholder="名称（可选）" style="width:180px"/>
+        <button class="primary" id="upsertPool">保存池</button>
+        <button id="selectFiltered">勾选过滤结果</button>
+        <button id="clearChecks">清空勾选</button>
+      </div>
+      <input id="exitPickFilter" placeholder="过滤出口再勾选" style="width:280px;margin-bottom:8px"/>
+      <div class="checks" id="exitChecks"></div>
+    </div>
+    <div id="poolsList" class="muted">加载中…</div>
+  </section>
+
+  <section id="tab-exits" hidden>
     <div class="card stats" id="exitStats"></div>
     <div class="card">
       <div class="row" style="justify-content:space-between;margin-bottom:10px">
@@ -71,7 +182,7 @@ pre.mono{white-space:pre-wrap;margin:0}
         </div>
         <div class="muted" id="exitCount"></div>
       </div>
-      <div style="overflow:auto;max-height:70vh">
+      <div class="table-wrap" style="max-height:70vh">
         <table>
           <thead>
             <tr><th>ID</th><th>Server</th><th>Password</th><th>Exit IP</th><th>use</th><th>ban</th><th>状态</th><th>操作</th></tr>
@@ -82,40 +193,53 @@ pre.mono{white-space:pre-wrap;margin:0}
     </div>
   </section>
 
-  <section id="tab-pools" hidden>
-    <div class="card">
-      <div class="row" style="margin-bottom:10px">
-        <input id="poolId" placeholder="pool id" style="width:160px"/>
-        <input id="poolName" placeholder="name (optional)" style="width:160px"/>
-        <input id="poolExitIds" placeholder="exitIds 逗号分隔" style="width:360px"/>
-        <button class="primary" id="upsertPool">创建/更新池</button>
-      </div>
-      <div id="poolsList" class="muted">加载中…</div>
-    </div>
-  </section>
-
   <section id="tab-import" hidden>
     <div class="card">
+      <h2>导入账号</h2>
+      <p class="muted">支持本服务导出的 accounts JSON、原版 OIDC 凭证（refreshToken / clientId / clientSecret）、管理器 <code>credentials</code> 导出，以及卡密行：<span class="mono">邮箱----密码----RefreshToken----ClientId----ClientSecret----登录方式</span>。卡密里的密码不会入库。</p>
+      <div class="row" style="margin-bottom:8px">
+        <label class="muted">模式</label>
+        <select id="accountImportMode">
+          <option value="merge">合并</option>
+          <option value="replace">替换全部</option>
+        </select>
+      </div>
+      <textarea id="accountImport" placeholder='[{"email":"a@example.com","refreshToken":"...","clientId":"...","clientSecret":"...","provider":"BuilderId"}]'></textarea>
+      <div class="row" style="margin-top:10px">
+        <button class="primary" id="doAccountImport">导入账号</button>
+      </div>
+    </div>
+    <div class="card">
+      <h2>导入出口</h2>
       <p class="muted">粘贴节点 <code>ss_exits</code> 生成的 JSON（整份或仅 exits 数组）。</p>
       <textarea id="importJson" placeholder='{"exits":[{"id":"ss-ip-1.2.3.4","server":"x","port":60123,"method":"aes-256-gcm","password":"PASS#1.2.3.4","exitIp":"1.2.3.4"}]}'></textarea>
       <div class="row" style="margin-top:10px">
         <button class="primary" id="doImport">导入 Exits</button>
       </div>
     </div>
-    <div class="card">
-      <h3 style="margin:0 0 8px">节点上生成清单</h3>
-      <pre class="mono">SS_PASS='你的密码' ./cmd cmd ss_exits mode:ip host:节点公网IP port:60123 out:/tmp/ss-exits.json
+  </section>
 
-jq '{exits:.exits}' /tmp/ss-exits.json | curl -s http://本机:8787/admin/exits/import \
-  -H "x-admin-token: $ADMIN_TOKEN" -H 'content-type: application/json' -d @-</pre>
+  <section id="tab-probe" hidden>
+    <div class="card">
+      <h2>TLS / JA4 探测</h2>
+      <p class="muted">一键请求 <span class="mono">https://tls.peet.ws/api/all</span>：先走账号当前粘性出站（SS / SOCKS / HTTP），再可选直连作为基线。页面只展示 JA4、JA3、ALPN 和出口 IP。不会改写 ClientHello，也不会模拟官方客户端指纹。</p>
+      <div class="row">
+        <select id="probeAccount" style="min-width:240px"></select>
+        <label class="row"><input type="checkbox" id="compareDirect" checked/> 对比直连</label>
+        <button class="primary" id="runProbe">开始探测</button>
+      </div>
     </div>
+    <div class="probe-grid" id="probeOut"></div>
   </section>
 </main>
+</div>
+</div>
 <div class="toast" id="toast"></div>
 <script>
 const $ = (id) => document.getElementById(id);
 const tokenKey = 'kiro-acc-admin-token';
-const state = { exits: [], pools: [] };
+const titles = { accounts: '账户管理', pools: '代理池', exits: '出口', import: '导入', probe: 'TLS 探测' };
+const state = { exits: [], pools: [], accounts: [], checked: new Set() };
 $('token').value = localStorage.getItem(tokenKey) || '';
 
 function toast(msg, isErr) {
@@ -124,7 +248,7 @@ function toast(msg, isErr) {
   t.className = 'toast' + (isErr ? ' err' : '');
   t.style.display = 'block';
   clearTimeout(toast._t);
-  toast._t = setTimeout(() => { t.style.display = 'none'; }, 3200);
+  toast._t = setTimeout(() => { t.style.display = 'none'; }, 3600);
 }
 function headers(json) {
   const h = { 'x-admin-token': $('token').value.trim() };
@@ -135,7 +259,12 @@ async function api(path, opts = {}) {
   const res = await fetch('/admin' + path, { ...opts, headers: { ...headers(!!opts.body), ...(opts.headers || {}) } });
   const text = await res.text();
   let data; try { data = JSON.parse(text); } catch { data = { raw: text }; }
-  if (!res.ok) throw new Error((data && (data.error || data.message)) || (res.status + ' ' + text.slice(0, 160)));
+  if (!res.ok) {
+    const msg = (data && (data.error || data.message)) || (res.status + ' ' + text.slice(0, 180));
+    const err = new Error(typeof msg === 'string' ? msg : JSON.stringify(msg));
+    err.data = data;
+    throw err;
+  }
   return data;
 }
 function esc(s) {
@@ -147,10 +276,113 @@ function maskPass(p) {
   if (i <= 0) return '••••';
   return p.slice(0, Math.min(3, i)) + '•••' + p.slice(i);
 }
+function exitById(id) {
+  return state.exits.find(e => e.id === id);
+}
+function poolOptions(selected) {
+  const opts = ['<option value="">未绑定</option>'].concat(state.pools.map(p =>
+    '<option value="'+esc(p.id)+'"'+(p.id===selected?' selected':'')+'>'+esc(p.name ? p.id+' · '+p.name : p.id)+(p.disabled?' (停用)':'')+'</option>'
+  ));
+  return opts.join('');
+}
 function statusBadge(e) {
   if (e.disabled) return '<span class="badge bad">disabled</span>';
   if (e.cooldownUntil && e.cooldownUntil > Date.now()) return '<span class="badge warn">cooldown</span>';
   return '<span class="badge ok">active</span>';
+}
+function accountStatus(a) {
+  const bits = [];
+  bits.push(a.enabled === false ? '<span class="badge bad">禁用</span>' : '<span class="badge ok">启用</span>');
+  if (a.suspended) bits.push('<span class="badge warn">suspended</span>');
+  if (!a.accessToken && a.refreshToken) bits.push('<span class="badge warn">待刷新</span>');
+  return bits.join(' ');
+}
+function exitTip(a) {
+  const id = (a.assignedExit && a.assignedExit.exitId) || a.outboundExitId || '';
+  const ip = (a.assignedExit && a.assignedExit.exitIp) || (exitById(id) || {}).exitIp || (exitById(id) || {}).expectedExitIp || '';
+  if (!id && !ip) return '<span class="muted">未分配</span>';
+  const label = [id || '?', ip].filter(Boolean).join(' · ');
+  return '<span class="tip mono" title="只读：绑定代理池后由分配写入的出口">'+esc(label)+'</span>';
+}
+
+function actionMenu(items) {
+  const btns = items.map(it => {
+    const cls = it.danger ? ' class="danger"' : '';
+    return '<button type="button"' + cls + ' ' + it.attrs + '>' + it.label + '</button>';
+  }).join('');
+  return '<details class="menu">' +
+    '<summary>操作 ▾</summary>' +
+    '<div class="menu-panel">' + btns + '</div></details>';
+}
+function renderAccounts() {
+  const q = ($('accountFilter').value || '').toLowerCase();
+  let list = state.accounts.slice();
+  if (q) list = list.filter(a => JSON.stringify({
+    label: a.label, email: a.email, pool: a.outboundPoolId, exit: a.outboundExitId, ip: a.assignedExit && a.assignedExit.exitIp
+  }).toLowerCase().includes(q));
+  const enabled = state.accounts.filter(a => a.enabled !== false).length;
+  const bound = state.accounts.filter(a => a.outboundPoolId).length;
+  $('accountStats').innerHTML =
+    '<div class="stat"><span class="muted">账号</span><b>'+state.accounts.length+'</b></div>'+
+    '<div class="stat"><span class="muted">启用</span><b>'+enabled+'</b></div>'+
+    '<div class="stat"><span class="muted">已绑池</span><b>'+bound+'</b></div>'+
+    '<div class="stat"><span class="muted">代理池</span><b>'+state.pools.length+'</b></div>';
+  $('accountBody').innerHTML = list.map(a => {
+    const auth = [a.provider, a.authMethod].filter(Boolean).join(' / ') || '—';
+    return '<tr>'+
+      '<td><b>'+esc(a.label||a.id)+'</b><div class="muted mono">'+esc(a.email||a.id)+'</div></td>'+
+      '<td>'+esc(auth)+'</td>'+
+      '<td>'+accountStatus(a)+'</td>'+
+      '<td><select data-pool-for="'+esc(a.id)+'">'+poolOptions(a.outboundPoolId||'')+'</select></td>'+
+      '<td>'+exitTip(a)+'</td>'+
+      '<td>'+actionMenu([
+          {label:'绑定', attrs:'data-bind="'+esc(a.id)+'"'},
+          {label:'换绑', attrs:'data-rebind="'+esc(a.id)+'"'},
+          {label:'探测', attrs:'data-probe="'+esc(a.id)+'"'},
+          {label:'刷新 Token', attrs:'data-refresh="'+esc(a.id)+'"'},
+          a.enabled === false
+            ? {label:'启用', attrs:'data-aen="'+esc(a.id)+'"'}
+            : {label:'禁用', attrs:'data-adis="'+esc(a.id)+'"'},
+          {label:'删除', attrs:'data-adel="'+esc(a.id)+'"', danger:true},
+        ])+'</td></tr>';
+  }).join('') || '<tr><td colspan="6" class="muted">暂无账号。到「导入」粘贴 OIDC / 账号 JSON。</td></tr>';
+  const sel = $('probeAccount');
+  const prev = sel.value;
+  sel.innerHTML = '<option value="">选择账号</option>'+state.accounts.map(a =>
+    '<option value="'+esc(a.id)+'">'+esc((a.label||a.email||a.id)+(a.outboundExitId?(' · '+a.outboundExitId):''))+'</option>'
+  ).join('');
+  if (prev) sel.value = prev;
+}
+function renderExitChecks() {
+  const q = ($('exitPickFilter').value || '').toLowerCase();
+  let list = state.exits.slice();
+  if (q) list = list.filter(e => (e.id+' '+(e.exitIp||'')+' '+(e.server||'')).toLowerCase().includes(q));
+  $('exitChecks').innerHTML = list.map(e => {
+    const on = state.checked.has(e.id) ? ' checked' : '';
+    return '<label class="mono"><input type="checkbox" data-exit-check="'+esc(e.id)+'"'+on+'/> '+esc(e.id)+(e.exitIp?' · '+esc(e.exitIp):'')+'</label>';
+  }).join('') || '<span class="muted">暂无出口</span>';
+}
+function renderPools() {
+  const el = $('poolsList');
+  if (!state.pools.length) { el.innerHTML = '<div class="card"><span class="muted">暂无代理池。在上方勾选出口后保存。</span></div>'; return; }
+  el.innerHTML = state.pools.map(p => {
+    const ids = p.exitIds || [];
+    const bound = state.accounts.filter(a => a.outboundPoolId === p.id).length;
+    return '<div class="card">'+
+      '<div class="row" style="justify-content:space-between">'+
+      '<div><b>'+esc(p.id)+'</b> <span class="muted">'+esc(p.name||'')+'</span> '+
+      (p.disabled?'<span class="badge bad">停用</span>':'<span class="badge ok">启用</span>')+
+      '<div class="muted">'+ids.length+' 个出口 · '+bound+' 个账号绑定</div></div>'+
+      actionMenu([
+        {label:'编辑成员', attrs:'data-editpool="'+esc(p.id)+'"'},
+        {label:'分配全部账号', attrs:'data-assign="'+esc(p.id)+'"'},
+        p.disabled
+          ? {label:'启用', attrs:'data-poolen="'+esc(p.id)+'"'}
+          : {label:'停用', attrs:'data-pooldis="'+esc(p.id)+'"'},
+        {label:'删除', attrs:'data-delpool="'+esc(p.id)+'"', danger:true},
+      ])+'</div></div>'+
+      '<div class="mono muted" style="margin-top:8px">'+esc(ids.join(', '))+'</div></div>';
+  }).join('');
 }
 function renderExits() {
   const q = ($('exitFilter').value || '').toLowerCase();
@@ -182,27 +414,37 @@ function renderExits() {
       '<td>'+(e.useCount||0)+'</td>'+
       '<td>'+(e.banCount||0)+'</td>'+
       '<td>'+statusBadge(e)+'</td>'+
-      '<td>'+(e.disabled
-        ? '<button data-en="'+esc(e.id)+'">启用</button>'
-        : '<button class="danger" data-dis="'+esc(e.id)+'">禁用</button>')+'</td>'+
+      '<td>'+actionMenu([
+          e.disabled
+            ? {label:'启用', attrs:'data-en="'+esc(e.id)+'"'}
+            : {label:'禁用', attrs:'data-dis="'+esc(e.id)+'"', danger:true},
+        ])+'</td>'+
       '</tr>';
-  }).join('') || '<tr><td colspan="8" class="muted">暂无 exits，请先 Import</td></tr>';
+  }).join('') || '<tr><td colspan="8" class="muted">暂无 exits，请先在「导入」中导入</td></tr>';
 }
-function renderPools() {
-  const el = $('poolsList');
-  if (!state.pools.length) { el.innerHTML = '<span class="muted">暂无池</span>'; return; }
-  el.innerHTML = state.pools.map(p => {
-    const ids = p.exitIds || [];
-    return '<div class="card" style="margin:0 0 10px">'+
-      '<div class="row" style="justify-content:space-between">'+
-      '<div><b>'+esc(p.id)+'</b> <span class="muted">'+esc(p.name||'')+'</span>'+
-      '<div class="mono muted">'+ids.length+' exits</div></div>'+
-      '<div class="row">'+
-      '<button class="primary" data-assign="'+esc(p.id)+'">分配账号</button>'+
-      '<button class="danger" data-delpool="'+esc(p.id)+'">删除</button>'+
-      '</div></div>'+
-      '<div class="mono" style="margin-top:8px">'+esc(ids.join(', '))+'</div></div>';
-  }).join('');
+function showTab(name) {
+  document.querySelectorAll('#nav button').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
+  ['accounts','pools','exits','import','probe'].forEach(t => { $('tab-'+t).hidden = t !== name; });
+  $('pageTitle').textContent = titles[name] || name;
+  const asideEl = $('aside');
+  const burgerEl = $('burger');
+  if (asideEl) asideEl.classList.remove('nav-open');
+  if (burgerEl) burgerEl.setAttribute('aria-expanded', 'false');
+}
+function obsCard(title, obs) {
+  if (!obs) return '';
+  if (!obs.ok) return '<div class="card"><h2>'+esc(title)+'</h2><p class="badge bad">失败</p><p class="muted">'+esc(obs.error||'')+'</p></div>';
+  const alpn = (obs.alpn||[]).join(', ') || '—';
+  const row = (k,v) => '<dt>'+k+'</dt><dd class="mono">'+esc(v||'—')+'</dd>';
+  return '<div class="card"><h2>'+esc(title)+'</h2><dl class="kv">'+
+    row('JA4', obs.ja4)+
+    row('JA4_r', obs.ja4R)+
+    row('JA3', obs.ja3Hash || obs.ja3)+
+    row('ALPN', alpn)+
+    row('HTTP', obs.httpVersion)+
+    row('出口 IP', obs.egressIp)+
+    row('egress', obs.egress)+
+    '</dl></div>';
 }
 async function refresh() {
   try {
@@ -213,28 +455,59 @@ async function refresh() {
   }
   try {
     const ex = await api('/exits');
-    state.exits = Array.isArray(ex.exits) ? ex.exits : (Array.isArray(ex) ? ex : []);
-    renderExits();
+    state.exits = Array.isArray(ex.exits) ? ex.exits : [];
   } catch (e) { toast('加载 exits: ' + e.message, true); }
   try {
     const pl = await api('/pools');
     state.pools = pl.pools || [];
-    renderPools();
   } catch (e) { $('poolsList').textContent = e.message; }
+  try {
+    const ac = await api('/accounts');
+    state.accounts = ac.accounts || [];
+  } catch (e) { toast('加载账号: ' + e.message, true); }
+  renderExits();
+  renderExitChecks();
+  renderPools();
+  renderAccounts();
 }
 $('saveToken').onclick = () => { localStorage.setItem(tokenKey, $('token').value.trim()); toast('Token 已保存'); refresh(); };
 $('reload').onclick = () => refresh();
 $('exitFilter').oninput = () => renderExits();
 $('exitSort').onchange = () => renderExits();
-document.querySelectorAll('.tabs button').forEach(btn => {
-  btn.onclick = () => {
-    document.querySelectorAll('.tabs button').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-    ['exits','pools','import'].forEach(t => { $('tab-'+t).hidden = (t !== btn.dataset.tab); });
-  };
-});
-document.body.addEventListener('click', async (ev) => {
+$('accountFilter').oninput = () => renderAccounts();
+$('exitPickFilter').oninput = () => renderExitChecks();
+document.querySelectorAll('#nav button').forEach(btn => { btn.onclick = () => showTab(btn.dataset.tab); });
+document.body.addEventListener('change', (ev) => {
   const t = ev.target;
+  if (!(t instanceof HTMLInputElement)) return;
+  if (t.dataset.exitCheck) {
+    if (t.checked) state.checked.add(t.dataset.exitCheck);
+    else state.checked.delete(t.dataset.exitCheck);
+  }
+});
+(() => {
+  const burger = $('burger');
+  const aside = $('aside');
+  if (burger && aside) {
+    burger.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      const open = aside.classList.toggle('nav-open');
+      burger.setAttribute('aria-expanded', open ? 'true' : 'false');
+    });
+  }
+  document.addEventListener('click', (ev) => {
+    const t = ev.target;
+    if (!(t instanceof Element)) return;
+    document.querySelectorAll('details.menu[open]').forEach((d) => {
+      if (!d.contains(t)) d.removeAttribute('open');
+    });
+  });
+})();
+document.body.addEventListener('click', async (ev) => {
+  const raw = ev.target;
+  if (!(raw instanceof Element)) return;
+  if (raw.closest('summary')) return;
+  const t = raw.closest('button,[data-copy]');
   if (!(t instanceof HTMLElement)) return;
   try {
     if (t.dataset.copy != null) { await navigator.clipboard.writeText(t.dataset.copy); toast('已复制 password'); }
@@ -242,21 +515,81 @@ document.body.addEventListener('click', async (ev) => {
     else if (t.dataset.en) { await api('/exits/' + encodeURIComponent(t.dataset.en) + '/enable', { method: 'POST' }); toast('已启用'); refresh(); }
     else if (t.dataset.assign) {
       const r = await api('/pools/' + encodeURIComponent(t.dataset.assign) + '/assign', { method: 'POST', body: '{}' });
-      toast('已分配 ' + ((r.assigned && r.assigned.length) || r.count || '')); refresh();
+      toast('已分配 ' + ((r.assigned && r.assigned.length) || 0) + ' 个账号'); refresh();
     } else if (t.dataset.delpool) {
-      if (!confirm('删除池 ' + t.dataset.delpool + ' ?')) return;
+      if (!confirm('删除代理池 ' + t.dataset.delpool + ' ?')) return;
       await api('/pools/' + encodeURIComponent(t.dataset.delpool), { method: 'DELETE' });
       toast('池已删除'); refresh();
+    } else if (t.dataset.pooldis) {
+      await api('/pools/' + encodeURIComponent(t.dataset.pooldis) + '/disable', { method: 'POST' });
+      toast('池已停用'); refresh();
+    } else if (t.dataset.poolen) {
+      await api('/pools/' + encodeURIComponent(t.dataset.poolen) + '/enable', { method: 'POST' });
+      toast('池已启用'); refresh();
+    } else if (t.dataset.editpool) {
+      const p = state.pools.find(x => x.id === t.dataset.editpool);
+      if (!p) return;
+      $('poolId').value = p.id;
+      $('poolName').value = p.name || '';
+      state.checked = new Set(p.exitIds || []);
+      renderExitChecks();
+      showTab('pools');
+      toast('已载入池成员，改完点保存');
+    } else if (t.dataset.bind) {
+      const sel = document.querySelector('select[data-pool-for="'+CSS.escape(t.dataset.bind)+'"]');
+      const poolId = sel ? sel.value : '';
+      if (!poolId) {
+        await api('/accounts/' + encodeURIComponent(t.dataset.bind) + '/unbind-pool', { method: 'POST' });
+        toast('已解除代理池绑定');
+      } else {
+        const r = await api('/accounts/' + encodeURIComponent(t.dataset.bind) + '/bind-pool', { method: 'POST', body: JSON.stringify({ poolId }) });
+        const tip = r.assignedExit ? ((r.assignedExit.exitId||'') + (r.assignedExit.exitIp ? ' · ' + r.assignedExit.exitIp : '')) : '';
+        toast('已绑定 ' + poolId + (tip ? ' → ' + tip : ''));
+      }
+      refresh();
+    } else if (t.dataset.rebind) {
+      const r = await api('/accounts/' + encodeURIComponent(t.dataset.rebind) + '/rebind-exit', { method: 'POST', body: '{}' });
+      const tip = r.assignedExit ? ((r.assignedExit.exitId||'') + (r.assignedExit.exitIp ? ' · ' + r.assignedExit.exitIp : '')) : (r.exitId||'');
+      toast('已换绑 ' + tip); refresh();
+    } else if (t.dataset.probe) {
+      $('probeAccount').value = t.dataset.probe;
+      showTab('probe');
+    } else if (t.dataset.refresh) {
+      await api('/accounts/' + encodeURIComponent(t.dataset.refresh) + '/refresh', { method: 'POST' });
+      toast('Token 已刷新'); refresh();
+    } else if (t.dataset.aen) {
+      await api('/accounts/' + encodeURIComponent(t.dataset.aen) + '/enable', { method: 'POST' });
+      toast('已启用'); refresh();
+    } else if (t.dataset.adis) {
+      await api('/accounts/' + encodeURIComponent(t.dataset.adis) + '/disable', { method: 'POST' });
+      toast('已禁用'); refresh();
+    } else if (t.dataset.adel) {
+      if (!confirm('删除账号 ' + t.dataset.adel + ' ?')) return;
+      await api('/accounts/' + encodeURIComponent(t.dataset.adel), { method: 'DELETE' });
+      toast('已删除'); refresh();
     }
   } catch (e) { toast(e.message, true); }
 });
+$('selectFiltered').onclick = () => {
+  document.querySelectorAll('#exitChecks input[data-exit-check]').forEach(el => {
+    state.checked.add(el.dataset.exitCheck);
+    el.checked = true;
+  });
+};
+$('clearChecks').onclick = () => { state.checked.clear(); renderExitChecks(); };
 $('upsertPool').onclick = async () => {
   try {
     const id = $('poolId').value.trim();
-    const exitIds = $('poolExitIds').value.split(/[\s,]+/).map(s => s.trim()).filter(Boolean);
-    if (!id || !exitIds.length) throw new Error('需要 pool id 和 exitIds');
-    await api('/pools', { method: 'POST', body: JSON.stringify({ id, name: $('poolName').value.trim() || undefined, exitIds }) });
-    toast('池已保存'); refresh();
+    const exitIds = [...state.checked];
+    if (!id || !exitIds.length) throw new Error('需要 pool id，并至少勾选一个出口');
+    const existing = state.pools.find(p => p.id === id);
+    await api('/pools', { method: 'POST', body: JSON.stringify({
+      id,
+      name: $('poolName').value.trim() || undefined,
+      exitIds,
+      disabled: existing ? existing.disabled : undefined,
+    }) });
+    toast('代理池已保存'); refresh();
   } catch (e) { toast(e.message, true); }
 };
 $('doImport').onclick = async () => {
@@ -270,6 +603,46 @@ $('doImport').onclick = async () => {
     toast('导入成功: ' + ((r.exits && r.exits.length) || r.exitCount || ''));
     refresh();
   } catch (e) { toast(e.message, true); }
+};
+$('doAccountImport').onclick = async () => {
+  try {
+    const raw = $('accountImport').value.trim();
+    if (!raw) throw new Error('内容为空');
+    const mode = $('accountImportMode').value;
+    let body;
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) body = { accounts: parsed, mode };
+      else body = { ...parsed, mode: parsed.mode || mode };
+    } catch {
+      body = { text: raw, mode };
+    }
+    const r = await api('/accounts/import', { method: 'POST', body: JSON.stringify(body) });
+    const warn = (r.warnings && r.warnings.length) ? '，跳过 ' + r.warnings.length : '';
+    toast('已导入 ' + r.imported + ' / 总计 ' + r.total + warn);
+    refresh();
+  } catch (e) { toast(e.message, true); }
+};
+$('runProbe').onclick = async () => {
+  const accountId = $('probeAccount').value;
+  if (!accountId) { toast('先选择账号', true); return; }
+  $('probeOut').innerHTML = '<div class="card muted">探测中…（走粘性出站，可能需要十几秒）</div>';
+  try {
+    const r = await api('/tls-probe', { method: 'POST', body: JSON.stringify({
+      accountId,
+      compareDirect: $('compareDirect').checked,
+    }) });
+    const same = r.sticky && r.direct && r.sticky.ja4 && r.direct.ja4
+      ? (r.sticky.ja4 === r.direct.ja4 ? 'JA4 与直连相同。' : 'JA4 与直连不同。')
+      : '';
+    $('probeOut').innerHTML =
+      '<div class="card" style="grid-column:1/-1"><span class="muted">'+esc(r.note||'')+' '+esc(same)+
+      ' 出口 '+(r.exitId?esc(r.exitId):'—')+' · 池 '+(r.poolId?esc(r.poolId):'—')+' · '+esc(r.proxyKind||'')+'</span></div>'+
+      obsCard('粘性出站', r.sticky)+
+      obsCard('直连基线', r.direct);
+  } catch (e) {
+    $('probeOut').innerHTML = '<div class="card"><span class="badge bad">失败</span><p>'+esc(e.message)+'</p></div>';
+  }
 };
 refresh();
 </script>

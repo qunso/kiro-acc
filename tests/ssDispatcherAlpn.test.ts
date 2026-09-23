@@ -102,8 +102,17 @@ async function captureSsClientHello(): Promise<Buffer> {
     return await hello
   } finally {
     spy.mockRestore()
-    await pending
-    await dispatcher.close()
+    // ClientHello is already captured. The in-flight handshake has no peer,
+    // and undici may wait out headersTimeout instead of rejecting immediately
+    // after the tunnel sockets are destroyed.
+    await Promise.race([
+      pending,
+      new Promise((resolve) => setTimeout(resolve, 200)),
+    ])
+    await Promise.race([
+      dispatcher.close(),
+      new Promise((resolve) => setTimeout(resolve, 200)),
+    ])
   }
 }
 

@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import type { AccountStore } from '../accounts/store.js'
-import type { AccountCreateInput, PersistedConfig } from '../accounts/types.js'
+import type { AccountCreateInput, AccountRecord, PersistedConfig } from '../accounts/types.js'
+import { normalizeAccountImport } from '../accounts/importNormalize.js'
 import { refreshAccountToken } from '../kiro/auth.js'
 import { adminAuth } from '../middleware/auth.js'
 import type { AppConfig } from '../config.js'
@@ -9,6 +10,7 @@ import { pickExitId, type ExitAssignStrategy } from '../exits/assign.js'
 import type { PoolsStore, ProxyPool } from '../pools/store.js'
 import { assignAccountToPool, rebindAccountExitAfterBan } from '../pools/rebind.js'
 import { probeMany } from '../exits/probe.js'
+import { probeTlsFingerprint } from './tlsProbe.js'
 
 export function createAdminRoutes(
   store: AccountStore,
@@ -19,22 +21,36 @@ export function createAdminRoutes(
   const app = new Hono()
   app.use('*', adminAuth(config))
 
-  app.get('/accounts', (c) => c.json({ accounts: store.list() }))
+  function assignedExit(acc: AccountRecord) {
+    if (!acc.outboundPoolId && !acc.outboundExitId) return null
+    const exit = acc.outboundExitId ? exitsStore?.getEntry(acc.outboundExitId) : undefined
+    return {
+      poolId: acc.outboundPoolId ?? null,
+      exitId: acc.outboundExitId ?? null,
+      exitIp: exit?.exitIp || exit?.expectedExitIp || null,
+    }
+  }
+
+  function withExit(acc: AccountRecord) {
+    return { ...acc, assignedExit: assignedExit(acc) }
+  }
+
+  app.get('/accounts', (c) => c.json({ accounts: store.list().map(withExit) }))
 
   app.get('/accounts/:id', (c) => {
     const acc = store.get(c.req.param('id'))
     if (!acc) return c.json({ error: 'Not found' }, 404)
-    return c.json(acc)
+    return c.json(withExit(acc))
   })
 
   app.post('/accounts', async (c) => {
     const body = (await c.req.json()) as AccountCreateInput
-    if (!body.accessToken) {
-      return c.json({ error: 'accessToken is required' }, 400)
+    if (!body.accessToken && !body.refreshToken) {
+      return c.json({ error: 'accessToken or refreshToken is required' }, 400)
     }
     try {
       const created = await store.create(body)
-      return c.json(created, 201)
+      return c.json(withExit(created), 201)
     } catch (err) {
       return c.json({ error: err instanceof Error ? err.message : String(err) }, 400)
     }
@@ -43,7 +59,7 @@ export function createAdminRoutes(
   app.patch('/accounts/:id', async (c) => {
     try {
       const updated = await store.update(c.req.param('id'), await c.req.json())
-      return c.json(updated)
+      return c.json(withExit(updated))
     } catch (err) {
       return c.json({ error: err instanceof Error ? err.message : String(err) }, 404)
     }
@@ -84,7 +100,7 @@ export function createAdminRoutes(
       expiresAt: result.expiresAt,
     })
     store.pool.updateAccount(acc.id, { isAvailable: true })
-    return c.json({ ok: true, account: store.get(acc.id) })
+    return c.json({ ok: true, account: withExit(store.get(acc.id)!) })
   })
 
   app.post('/accounts/:id/unsuspend', async (c) => {
@@ -92,7 +108,41 @@ export function createAdminRoutes(
     await store.flush()
     const acc = store.get(c.req.param('id'))
     if (!acc) return c.json({ error: 'Not found' }, 404)
-    return c.json(acc)
+    return c.json(withExit(acc))
+  })
+
+  app.post('/accounts/:id/bind-pool', async (c) => {
+    if (!exitsStore || !poolsStore) {
+      return c.json({ error: 'exits/pools store not initialized' }, 500)
+    }
+    const acc = store.get(c.req.param('id'))
+    if (!acc) return c.json({ error: 'Not found' }, 404)
+    const body = (await c.req.json().catch(() => ({}))) as { poolId?: string }
+    const poolId = body.poolId?.trim()
+    if (!poolId) return c.json({ error: 'poolId is required' }, 400)
+    const result = await assignAccountToPool(acc, poolId, {
+      accounts: store,
+      exits: exitsStore,
+      pools: poolsStore,
+    })
+    if (!result.ok) return c.json({ error: result.error || 'bind failed', ...result }, 400)
+    const account = store.get(acc.id)
+    return c.json({
+      ...result,
+      account: account ? withExit(account) : account,
+      assignedExit: account ? assignedExit(account) : null,
+    })
+  })
+
+  app.post('/accounts/:id/unbind-pool', async (c) => {
+    const acc = store.get(c.req.param('id'))
+    if (!acc) return c.json({ error: 'Not found' }, 404)
+    const updated = await store.update(acc.id, {
+      outboundPoolId: undefined,
+      outboundExitId: undefined,
+      outboundProxyUrl: undefined,
+    })
+    return c.json({ ok: true, account: withExit(updated), assignedExit: null })
   })
 
   app.post('/accounts/:id/rebind-exit', async (c) => {
@@ -115,18 +165,26 @@ export function createAdminRoutes(
     if (!result.ok) {
       return c.json({ error: result.error || 'rebind failed', ...result }, 400)
     }
-    return c.json({ ...result, account: store.get(acc.id) })
+    const account = store.get(acc.id)
+    return c.json({ ...result, account: account ? withExit(account) : account, assignedExit: account ? assignedExit(account) : null })
   })
 
   app.post('/accounts/import', async (c) => {
-    const body = (await c.req.json()) as {
-      accounts?: AccountCreateInput[]
-      mode?: 'merge' | 'replace'
+    let body: unknown
+    try {
+      body = await c.req.json()
+    } catch {
+      return c.json({ error: 'Invalid JSON body' }, 400)
     }
-    const items = body.accounts || (Array.isArray(body) ? (body as AccountCreateInput[]) : null)
-    if (!items) return c.json({ error: 'accounts array required' }, 400)
-    const result = await store.importAccounts(items, body.mode || 'merge')
-    return c.json(result)
+    const normalized = normalizeAccountImport(body)
+    if (!normalized.accounts.length) {
+      return c.json(
+        { error: 'no accounts recognized', warnings: normalized.warnings },
+        400,
+      )
+    }
+    const result = await store.importAccounts(normalized.accounts, normalized.mode)
+    return c.json({ ...result, mode: normalized.mode, warnings: normalized.warnings })
   })
 
   app.get('/accounts/export', (c) => {
@@ -338,6 +396,24 @@ export function createAdminRoutes(
     return c.json(pool)
   })
 
+  app.post('/pools/:id/disable', async (c) => {
+    if (!poolsStore) return c.json({ error: 'pools store not initialized' }, 500)
+    try {
+      return c.json(await poolsStore.setDisabled(c.req.param('id'), true))
+    } catch (err) {
+      return c.json({ error: err instanceof Error ? err.message : String(err) }, 404)
+    }
+  })
+
+  app.post('/pools/:id/enable', async (c) => {
+    if (!poolsStore) return c.json({ error: 'pools store not initialized' }, 500)
+    try {
+      return c.json(await poolsStore.setDisabled(c.req.param('id'), false))
+    } catch (err) {
+      return c.json({ error: err instanceof Error ? err.message : String(err) }, 404)
+    }
+  })
+
   app.delete('/pools/:id', async (c) => {
     if (!poolsStore) return c.json({ error: 'pools store not initialized' }, 500)
     const ok = await poolsStore.delete(c.req.param('id'))
@@ -410,6 +486,51 @@ export function createAdminRoutes(
       })
     } catch (err) {
       return c.json({ error: err instanceof Error ? err.message : String(err) }, 500)
+    }
+  })
+
+  /**
+   * Observe-only JA3/JA4/ALPN/egress comparison.
+   * Uses the account (or exit) sticky outbound dispatcher as-is.
+   */
+  app.post('/tls-probe', async (c) => {
+    try {
+      const body = (await c.req.json().catch(() => ({}))) as {
+        accountId?: string
+        exitId?: string
+        compareDirect?: boolean
+        url?: string
+        timeoutMs?: number
+      }
+      let proxyUrl: string | undefined
+      let accountId: string | undefined
+      let exitId = body.exitId?.trim() || undefined
+      let poolId: string | undefined
+
+      if (body.accountId) {
+        const acc = store.get(body.accountId)
+        if (!acc) return c.json({ error: 'account not found' }, 404)
+        accountId = acc.id
+        poolId = acc.outboundPoolId
+        exitId = acc.outboundExitId || exitId
+        proxyUrl = acc.outboundProxyUrl
+        if (!proxyUrl && exitId && exitsStore) {
+          proxyUrl = await exitsStore.ensureProxyUrl(exitId)
+        }
+      } else if (exitId) {
+        if (!exitsStore) return c.json({ error: 'exits store not initialized' }, 500)
+        proxyUrl = await exitsStore.ensureProxyUrl(exitId)
+      }
+
+      const report = await probeTlsFingerprint({
+        proxyUrl,
+        compareDirect: body.compareDirect,
+        url: body.url,
+        timeoutMs: body.timeoutMs,
+      })
+      return c.json({ accountId: accountId ?? null, poolId: poolId ?? null, exitId: exitId ?? null, ...report })
+    } catch (err) {
+      return c.json({ error: err instanceof Error ? err.message : String(err) }, 400)
     }
   })
 
