@@ -14,6 +14,7 @@ aside{background:#101820;border-right:1px solid var(--line);padding:18px 12px;po
 .nav{display:flex;flex-direction:column;gap:4px;margin-top:12px}
 .nav button{text-align:left;background:transparent;border:1px solid transparent;color:var(--muted);padding:10px 12px;border-radius:8px}
 .nav button.active{background:var(--card);color:var(--acc);border-color:#243044}
+.nav button:disabled{opacity:.45;cursor:not-allowed}
 .aside-foot{margin-top:auto;font-size:12px}
 .content{min-width:0}
 header{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--line);background:#121a24;position:sticky;top:0;z-index:5}
@@ -32,23 +33,22 @@ table{width:100%;border-collapse:collapse;font-size:13px}
 th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
 th{color:var(--muted);font-weight:600}
 .mono{font-family:ui-monospace,Menlo,monospace;font-size:12px;word-break:break-all}
-.badge{display:inline-block;padding:2px 7px;border-radius:999px;font-size:11px;border:1px solid var(--line)}
+.badge{display:inline-block;padding:2px 7px;border-radius:999px;font-size:11px;border:1px solid var(--line);margin:1px 2px 1px 0}
 .badge.ok{color:var(--ok);border-color:#245c43}
 .badge.bad{color:var(--bad);border-color:#5c2a2a}
 .badge.warn{color:var(--warn);border-color:#5c4a20}
 .stats{display:flex;gap:12px;flex-wrap:wrap}
 .stat{background:#121a24;border:1px solid var(--line);border-radius:10px;padding:10px 14px;min-width:110px}
 .stat b{display:block;font-size:20px}
-textarea{width:100%;min-height:160px}
+textarea{width:100%;min-height:140px}
 .toast{position:fixed;right:16px;bottom:16px;background:#102033;border:1px solid var(--acc);padding:10px 14px;border-radius:10px;display:none;max-width:420px;z-index:20}
 .toast.err{border-color:var(--bad)}
 .tip{display:inline-block;padding:2px 8px;border-radius:8px;background:#102033;border:1px solid #243044}
 .checks{max-height:220px;overflow:auto;border:1px solid var(--line);border-radius:8px;padding:8px;display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:4px}
 .probe-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-.kv{display:grid;grid-template-columns:88px 1fr;gap:4px 8px;margin:0}
+.kv{display:grid;grid-template-columns:120px 1fr;gap:4px 8px;margin:0}
 .kv dt{color:var(--muted)}
 .kv dd{margin:0}
-
 .table-wrap{overflow:auto;-webkit-overflow-scrolling:touch;max-width:100%}
 .aside-top{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}
 .burger{display:none;min-width:44px;min-height:40px;align-items:center;justify-content:center}
@@ -62,7 +62,6 @@ details.menu>summary{
 details.menu>summary::-webkit-details-marker{display:none}
 details.menu[open]>summary{border-color:var(--acc);color:var(--acc)}
 .menu-panel{
-  /* fixed so table-wrap overflow cannot clip the panel */
   position:fixed;z-index:1000;
   min-width:168px;padding:6px;border-radius:10px;
   background:#121a24;border:1px solid var(--line);
@@ -77,6 +76,9 @@ details.menu[open]>summary{border-color:var(--acc);color:var(--acc)}
 .menu-panel button:hover,.menu-panel button:focus{background:#1a2332;border-color:#243044}
 .menu-panel button.danger{color:#ffb4b4}
 .menu-panel button.danger:hover{background:#3a1d1d;border-color:#5c2a2a}
+pre.docs{background:#0d1218;border:1px solid var(--line);border-radius:10px;padding:12px;overflow:auto;font-size:12px;line-height:1.5}
+.tag-edit{width:110px;padding:4px 6px;font-size:12px}
+.batch-bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:10px}
 @media(max-width:860px){
   .shell{grid-template-columns:1fr}
   aside{
@@ -113,18 +115,24 @@ details.menu[open]>summary{border-color:var(--acc);color:var(--acc)}
     <button type="button" class="burger" id="burger" aria-label="菜单" aria-expanded="false">☰</button>
   </div>
   <nav class="nav" id="nav">
-    <button class="active" data-tab="accounts">账户管理</button>
+    <button class="active" data-tab="home">首页</button>
+    <button data-tab="accounts">账户</button>
     <button data-tab="pools">代理池</button>
     <button data-tab="exits">出口</button>
+    <button data-tab="api">API 反代</button>
+    <button data-tab="subs">订阅用量</button>
+    <button data-tab="webhooks">Webhook</button>
+    <button data-tab="diagnose">诊断</button>
     <button data-tab="import">导入</button>
     <button data-tab="probe">TLS 探测</button>
+    <button data-tab="settings">设置 / 关于</button>
   </nav>
-  <div class="aside-foot muted">JA4 只做观测对比，不伪装 ClientHello。</div>
+  <div class="aside-foot muted">无头服务管理台 · P0–P2</div>
 </aside>
 <div class="content">
 <header>
   <div>
-    <h1 id="pageTitle">账户管理</h1>
+    <h1 id="pageTitle">首页</h1>
     <div class="muted" id="healthLine">connecting…</div>
   </div>
   <div class="row">
@@ -135,17 +143,112 @@ details.menu[open]>summary{border-color:var(--acc);color:var(--acc)}
   </div>
 </header>
 <main>
-  <section id="tab-accounts">
+  
+  <section id="tab-home">
+    <div class="card stats" id="dashAccountStats"></div>
+    <div class="card stats" id="dashPoolStats"></div>
+    <div class="row" style="align-items:stretch;gap:12px;flex-wrap:wrap">
+      <div class="card" style="flex:1;min-width:260px">
+        <h2>快捷入口</h2>
+        <div class="row" id="dashShortcuts" style="gap:8px"></div>
+      </div>
+      <div class="card" style="flex:1;min-width:260px">
+        <h2>运行状态</h2>
+        <dl class="kv" id="dashHealth"></dl>
+      </div>
+    </div>
+    <div class="card">
+      <h2>最近用量</h2>
+      <p class="muted" id="dashUsageTotals"></p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>时间</th><th>账号</th><th>模型</th><th>结果</th><th>tokens</th><th>耗时</th></tr></thead>
+          <tbody id="dashUsageBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section id="tab-settings" hidden>
+    <div class="card">
+      <h2>运行参数</h2>
+      <p class="muted">账号选择策略、Token 刷新提前量、重试与冷却等（写入 data/config.json）。</p>
+      <div class="row" style="margin-bottom:8px">
+        <label class="muted">策略</label>
+        <select id="setStrategy">
+          <option value="round-robin">round-robin</option>
+          <option value="sticky">sticky</option>
+        </select>
+        <label class="muted">刷新提前(秒)</label>
+        <input id="setRefreshBefore" type="number" min="0" style="width:100px"/>
+        <label class="muted">最大重试</label>
+        <input id="setMaxRetries" type="number" min="0" max="10" style="width:80px"/>
+        <label class="muted">端点</label>
+        <select id="setEndpoint">
+          <option value="codewhisperer">codewhisperer</option>
+          <option value="amazonq">amazonq</option>
+        </select>
+      </div>
+      <div class="row" style="margin-bottom:8px">
+        <label class="muted">基础冷却(ms)</label>
+        <input id="setCooldown" type="number" min="0" style="width:120px"/>
+        <label class="muted">请求日志容量</label>
+        <input id="setLogCap" type="number" min="50" max="5000" style="width:100px"/>
+        <label class="muted">出口失败阈值</label>
+        <input id="setExitFail" type="number" min="1" max="20" style="width:80px"/>
+        <button class="primary" id="saveSettings">保存设置</button>
+      </div>
+      <p class="muted" id="settingsHint"></p>
+    </div>
+    <div class="card">
+      <h2>配置同步</h2>
+      <p class="muted">导出/导入非密钥运维配置：池定义（仅 exitIds）、Webhook（URL，secret 脱敏）、模型映射、池策略、请求日志容量。不含账号 Token、出口 password、API Key 明文。</p>
+      <div class="row" style="margin-bottom:8px">
+        <button class="primary" id="exportConfig">导出 JSON</button>
+        <button id="copyConfigExport">复制导出</button>
+        <button id="downloadConfigExport">下载</button>
+      </div>
+      <textarea id="configSyncBox" placeholder="粘贴导出的 ops-config JSON，或点导出载入…"></textarea>
+      <div class="row" style="margin-top:10px">
+        <button class="danger" id="importConfig">确认合并导入</button>
+        <span class="muted" id="configSyncNote"></span>
+      </div>
+    </div>
+    <div class="card">
+      <h2>关于</h2>
+      <dl class="kv" id="aboutKv"></dl>
+    </div>
+  </section>
+
+  <section id="tab-accounts" hidden>
     <div class="card stats" id="accountStats"></div>
     <div class="card">
-      <p class="muted">在行内选择代理池并点「绑定」。分配完成后，出口 ID 和出口 IP 以只读提示显示，由池策略写入。</p>
+      <p class="muted">分组 / 标签可写回账号；批量操作勾选后执行。出口 ID/IP 只读，由池绑定写入。无 IDE 切号。</p>
       <div class="row" style="margin-bottom:10px">
-        <input id="accountFilter" placeholder="过滤标签 / 邮箱 / 出口" style="width:280px"/>
+        <input id="accountFilter" placeholder="搜索 标签/分组/邮箱/出口" style="width:240px"/>
+        <select id="filterGroup"><option value="">全部分组</option></select>
+        <select id="filterTag"><option value="">全部标签</option></select>
+        <button id="selectAllVisible">全选可见</button>
+        <button id="clearSelected">清空勾选</button>
+      </div>
+      <div class="batch-bar">
+        <span class="muted" id="selectedCount">已选 0</span>
+        <button data-batch="refresh">批量刷新 Token</button>
+        <button data-batch="enable">批量启用</button>
+        <button data-batch="disable">批量禁用</button>
+        <button data-batch="unsuspend">批量解封</button>
+        <select id="batchPool"><option value="">选择池…</option></select>
+        <button data-batch="bind-pool">批量绑池</button>
+        <button class="danger" data-batch="delete">批量删除</button>
       </div>
       <div class="table-wrap">
         <table>
           <thead>
-            <tr><th>账号</th><th>认证</th><th>状态</th><th>代理池</th><th>已分配出口</th><th>操作</th></tr>
+            <tr>
+              <th style="width:36px"><input type="checkbox" id="checkAllVisible" title="全选可见"/></th>
+              <th>账号</th><th>分组/标签</th><th>认证</th><th>状态</th>
+              <th>用量</th><th>代理池</th><th>已分配出口</th><th>操作</th>
+            </tr>
           </thead>
           <tbody id="accountBody"></tbody>
         </table>
@@ -214,24 +317,168 @@ details.menu[open]>summary{border-color:var(--acc);color:var(--acc)}
     <div class="card">
       <h2>导入出口</h2>
       <p class="muted">粘贴节点 <code>ss_exits</code> 生成的 JSON（整份或仅 exits 数组）。</p>
-      <textarea id="importJson" placeholder='{"exits":[{"id":"ss-ip-1.2.3.4","server":"x","port":60123,"method":"aes-256-gcm","password":"PASS#1.2.3.4","exitIp":"1.2.3.4"}]}'></textarea>
+      <textarea id="importJson" placeholder='{"exits":[{"id":"e1","server":"...","port":8388,"method":"aes-256-gcm","password":"pass#1"}]}'></textarea>
       <div class="row" style="margin-top:10px">
-        <button class="primary" id="doImport">导入 Exits</button>
+        <button class="primary" id="doImport">导入出口</button>
       </div>
+    </div>
+  </section>
+
+  <section id="tab-api" hidden>
+    <div class="card">
+      <h2>对外 URL</h2>
+      <p class="muted">客户端把 Base URL 指到下方地址；鉴权用 API Key（Bearer 或 x-api-key）。</p>
+      <dl class="kv" id="apiMetaKv"><dt>…</dt><dd class="muted">加载中</dd></dl>
+    </div>
+    <div class="card">
+      <h2>API Keys</h2>
+      <p class="muted">除环境变量 <code>API_KEY</code> 外，可在此创建持久化密钥。创建时明文只显示一次。</p>
+      <div class="row" style="margin-bottom:10px">
+        <input id="newKeyLabel" placeholder="标签（可选）" style="width:200px"/>
+        <button class="primary" id="createApiKey">创建 Key</button>
+      </div>
+      <div id="envKeyHint" class="muted" style="margin-bottom:8px"></div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>标签</th><th>Key</th><th>状态</th><th>创建</th><th>操作</th></tr></thead>
+          <tbody id="apiKeyBody"></tbody>
+        </table>
+      </div>
+      <pre class="docs" id="newKeyOnce" hidden></pre>
+    </div>
+    <div class="card">
+      <h2>模型映射</h2>
+      <p class="muted">OpenAI / 客户端模型名 → 上游公共模型（覆盖内置映射）。例：<code>gpt-4o-mini</code> → <code>claude-haiku-4.5</code>。</p>
+      <div class="row" style="margin-bottom:10px">
+        <input id="mapFrom" placeholder="客户端模型名" style="width:180px"/>
+        <input id="mapTo" placeholder="上游模型" style="width:180px"/>
+        <button class="primary" id="addModelMap">添加 / 更新</button>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>From</th><th>To</th><th></th></tr></thead>
+          <tbody id="modelMapBody"></tbody>
+        </table>
+      </div>
+      <p class="muted" id="builtinModels"></p>
+    </div>
+    <div class="card">
+      <h2>最近请求</h2>
+      <p class="muted">内存环形缓冲（有上限，重启清空）。</p>
+      <div class="row" style="margin-bottom:10px">
+        <input id="logFilter" placeholder="过滤 model / account / error / path" style="width:260px"/>
+        <select id="logStyle">
+          <option value="">全部风格</option>
+          <option value="openai">openai</option>
+          <option value="anthropic">anthropic</option>
+        </select>
+        <button id="reloadLog">刷新日志</button>
+        <button class="danger" id="clearLog">清空</button>
+        <span class="muted" id="logSize"></span>
+      </div>
+      <div class="table-wrap" style="max-height:360px">
+        <table>
+          <thead><tr><th>时间</th><th>风格</th><th>模型</th><th>账号</th><th>状态</th><th>耗时</th><th>错误</th></tr></thead>
+          <tbody id="requestLogBody"></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="card">
+      <h2>调用说明</h2>
+      <p class="muted">Chat Completions 与 Messages 共用账号池；账号绑池后走粘性出口。无 MITM / machine-id / JA4 伪造。</p>
+      <pre class="docs" id="apiDocs"></pre>
+    </div>
+  </section>
+
+  
+  <section id="tab-subs" hidden>
+    <div class="card stats" id="subStats"></div>
+    <div class="card">
+      <p class="muted">订阅类型由 provider/authMethod 推导；配额与用量来自本地池计量。可单账号刷新 Token/用量。不含批量订阅升级。</p>
+      <div class="row" style="margin-bottom:10px">
+        <input id="subFilter" placeholder="过滤账号 / 类型" style="width:240px"/>
+        <select id="subFocus">
+          <option value="">全部</option>
+          <option value="near">接近限额</option>
+          <option value="exhausted">已耗尽</option>
+          <option value="disabled">已禁用</option>
+          <option value="suspended">已封禁</option>
+          <option value="expiring">Token 将过期</option>
+        </select>
+        <button id="reloadSubs">刷新列表</button>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>账号</th><th>类型</th><th>Token 过期</th><th>配额</th><th>用量</th><th>状态</th><th>操作</th>
+            </tr>
+          </thead>
+          <tbody id="subBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section id="tab-webhooks" hidden>
+    <div class="card">
+      <h2>新建 Webhook</h2>
+      <p class="muted">支持 DingTalk / Telegram / Discord / Slack / generic JSON。事件：封禁、全配额耗尽、刷新失败、出口连续失败、诊断失败。</p>
+      <div class="row" style="margin-bottom:8px">
+        <input id="whLabel" placeholder="标签" style="width:140px"/>
+        <select id="whChannel">
+          <option value="generic">generic</option>
+          <option value="dingtalk">dingtalk</option>
+          <option value="telegram">telegram</option>
+          <option value="discord">discord</option>
+          <option value="slack">slack</option>
+        </select>
+        <input id="whUrl" placeholder="Webhook URL / Telegram bot base" style="flex:1;min-width:220px"/>
+      </div>
+      <div class="row" style="margin-bottom:8px">
+        <input id="whSecret" placeholder="DingTalk secret（可选）" style="width:200px"/>
+        <input id="whChatId" placeholder="Telegram chat_id" style="width:160px"/>
+        <input id="whRetries" type="number" min="1" max="5" value="3" title="maxRetries" style="width:80px"/>
+        <button class="primary" id="createWebhook">创建</button>
+      </div>
+      <div class="row" id="whEvents" style="margin-bottom:8px;gap:10px;flex-wrap:wrap"></div>
+      <div class="row">
+        <label class="muted">出口连续失败阈值</label>
+        <input id="whFailThreshold" type="number" min="1" max="20" value="3" style="width:80px"/>
+        <button id="saveWhSettings">保存阈值</button>
+      </div>
+    </div>
+    <div id="webhookList" class="muted">加载中…</div>
+  </section>
+
+  <section id="tab-diagnose" hidden>
+    <div class="card">
+      <h2>账号诊断</h2>
+      <p class="muted">检查 Token/刷新、粘性出口可达性，以及 TLS/JA4 粘性 vs 直连（只读观测）。完整单项探测也可在「TLS 探测」页进行。不伪造指纹 / 无 MITM / 无 machine-id。</p>
+      <div class="row" style="margin-bottom:10px">
+        <select id="diagAccount" style="min-width:240px"><option value="">选择账号</option></select>
+        <label class="row"><input type="checkbox" id="diagRefresh" checked/> 必要时刷新 Token</label>
+        <label class="row"><input type="checkbox" id="diagTls" checked/> TLS/JA4 对比</label>
+        <label class="row"><input type="checkbox" id="diagDirect" checked/> 对比直连</label>
+        <button class="primary" id="runDiagnose">开始诊断</button>
+        <button id="copyDiagReport">复制报告</button>
+      </div>
+      <div id="diagSummary" class="row" style="margin-bottom:10px"></div>
+      <pre class="docs" id="diagReport" style="min-height:220px">选择账号后开始诊断…</pre>
     </div>
   </section>
 
   <section id="tab-probe" hidden>
     <div class="card">
-      <h2>TLS / JA4 探测</h2>
-      <p class="muted">一键请求 <span class="mono">https://tls.peet.ws/api/all</span>：先走账号当前粘性出站（SS / SOCKS / HTTP），再可选直连作为基线。页面只展示 JA4、JA3、ALPN 和出口 IP。不会改写 ClientHello，也不会模拟官方客户端指纹。</p>
-      <div class="row">
-        <select id="probeAccount" style="min-width:240px"></select>
+      <h2>TLS 指纹探测（只读）</h2>
+      <p class="muted">对比账号粘性出站与直连的 JA3/JA4/ALPN/出口 IP。不修改 ClientHello。</p>
+      <div class="row" style="margin-bottom:10px">
+        <select id="probeAccount" style="min-width:240px"><option value="">选择账号</option></select>
         <label class="row"><input type="checkbox" id="compareDirect" checked/> 对比直连</label>
         <button class="primary" id="runProbe">开始探测</button>
       </div>
+      <div class="probe-grid" id="probeOut"></div>
     </div>
-    <div class="probe-grid" id="probeOut"></div>
   </section>
 </main>
 </div>
@@ -240,8 +487,17 @@ details.menu[open]>summary{border-color:var(--acc);color:var(--acc)}
 <script>
 const $ = (id) => document.getElementById(id);
 const tokenKey = 'kiro-acc-admin-token';
-const titles = { accounts: '账户管理', pools: '代理池', exits: '出口', import: '导入', probe: 'TLS 探测' };
-const state = { exits: [], pools: [], accounts: [], checked: new Set() };
+const titles = {
+  home: '首页', accounts: '账户管理', pools: '代理池', exits: '出口', import: '导入',
+  api: 'API 反代', subs: '订阅用量', webhooks: 'Webhook', diagnose: '诊断',
+  probe: 'TLS 探测', settings: '设置 / 关于'
+};
+const state = {
+  exits: [], pools: [], accounts: [], groups: [], tags: [], checked: new Set(),
+  selected: new Set(), usage: null, apiMeta: null, apiKeys: [], modelMap: {},
+  subs: null, webhooks: [], whEvents: [], exitFailThreshold: 3, lastDiagText: '',
+  dashboard: null, settings: null, lastConfigExport: '',
+};
 $('token').value = localStorage.getItem(tokenKey) || '';
 
 function toast(msg, isErr) {
@@ -282,10 +538,9 @@ function exitById(id) {
   return state.exits.find(e => e.id === id);
 }
 function poolOptions(selected) {
-  const opts = ['<option value="">未绑定</option>'].concat(state.pools.map(p =>
+  return ['<option value="">未绑定</option>'].concat(state.pools.map(p =>
     '<option value="'+esc(p.id)+'"'+(p.id===selected?' selected':'')+'>'+esc(p.name ? p.id+' · '+p.name : p.id)+(p.disabled?' (停用)':'')+'</option>'
-  ));
-  return opts.join('');
+  )).join('');
 }
 function statusBadge(e) {
   if (e.disabled) return '<span class="badge bad">disabled</span>';
@@ -306,15 +561,38 @@ function exitTip(a) {
   const label = [id || '?', ip].filter(Boolean).join(' · ');
   return '<span class="tip mono" title="只读：绑定代理池后由分配写入的出口">'+esc(label)+'</span>';
 }
-
+function usageCell(a) {
+  const s = a.stats || {};
+  const req = s.requests ?? a.requestCount ?? 0;
+  const tok = s.tokens ?? ((s.inputTokens||0)+(s.outputTokens||0));
+  const last = s.lastUsed || a.lastUsed;
+  const lastStr = last ? new Date(last).toLocaleString() : '—';
+  return '<div class="mono">'+req+' 次 · '+tok+' tok</div><div class="muted" style="font-size:11px">'+esc(lastStr)+'</div>';
+}
+function filteredAccounts() {
+  const q = ($('accountFilter').value || '').toLowerCase();
+  const g = $('filterGroup').value;
+  const t = $('filterTag').value;
+  return state.accounts.filter(a => {
+    if (g && (a.group || '') !== g) return false;
+    if (t && !(a.tags || []).includes(t)) return false;
+    if (!q) return true;
+    return JSON.stringify({
+      label: a.label, email: a.email, group: a.group, tags: a.tags,
+      pool: a.outboundPoolId, exit: a.outboundExitId,
+      ip: a.assignedExit && a.assignedExit.exitIp
+    }).toLowerCase().includes(q);
+  });
+}
+function updateSelectedCount() {
+  $('selectedCount').textContent = '已选 ' + state.selected.size;
+}
 function actionMenu(items) {
   const btns = items.map(it => {
     const cls = it.danger ? ' class="danger"' : '';
     return '<button type="button"' + cls + ' ' + it.attrs + '>' + it.label + '</button>';
   }).join('');
-  return '<details class="menu">' +
-    '<summary>操作 ▾</summary>' +
-    '<div class="menu-panel">' + btns + '</div></details>';
+  return '<details class="menu"><summary>操作 ▾</summary><div class="menu-panel">' + btns + '</div></details>';
 }
 function positionMenu(details) {
   const panel = details.querySelector('.menu-panel');
@@ -327,19 +605,11 @@ function positionMenu(details) {
   const sheet = vw <= 860;
   panel.classList.toggle('menu-panel-sheet', sheet);
   if (sheet) {
-    panel.style.left = '12px';
-    panel.style.right = '12px';
-    panel.style.top = 'auto';
-    panel.style.bottom = '12px';
-    panel.style.width = 'auto';
+    panel.style.left = '12px'; panel.style.right = '12px';
+    panel.style.top = 'auto'; panel.style.bottom = '12px'; panel.style.width = 'auto';
     return;
   }
-  // measure after visible
-  panel.style.left = '0px';
-  panel.style.top = '0px';
-  panel.style.right = 'auto';
-  panel.style.bottom = 'auto';
-  panel.style.width = 'auto';
+  panel.style.left = '0px'; panel.style.top = '0px'; panel.style.right = 'auto'; panel.style.bottom = 'auto'; panel.style.width = 'auto';
   const pw = panel.offsetWidth || 168;
   const ph = panel.offsetHeight || 200;
   let left = r.right - pw;
@@ -359,35 +629,48 @@ function bindMenuPositioning(root) {
     d.dataset.menuBound = '1';
     d.addEventListener('toggle', () => {
       if (!d.open) return;
-      // close siblings
-      document.querySelectorAll('details.menu[open]').forEach((o) => {
-        if (o !== d) o.removeAttribute('open');
-      });
+      document.querySelectorAll('details.menu[open]').forEach((o) => { if (o !== d) o.removeAttribute('open'); });
       requestAnimationFrame(() => positionMenu(d));
     });
   });
 }
-const _origRenderAccounts = typeof renderAccounts === 'function' ? null : null;
 
 function renderAccounts() {
-  const q = ($('accountFilter').value || '').toLowerCase();
-  let list = state.accounts.slice();
-  if (q) list = list.filter(a => JSON.stringify({
-    label: a.label, email: a.email, pool: a.outboundPoolId, exit: a.outboundExitId, ip: a.assignedExit && a.assignedExit.exitIp
-  }).toLowerCase().includes(q));
+  const list = filteredAccounts();
   const enabled = state.accounts.filter(a => a.enabled !== false).length;
   const bound = state.accounts.filter(a => a.outboundPoolId).length;
+  const suspended = state.accounts.filter(a => a.suspended).length;
   $('accountStats').innerHTML =
     '<div class="stat"><span class="muted">账号</span><b>'+state.accounts.length+'</b></div>'+
     '<div class="stat"><span class="muted">启用</span><b>'+enabled+'</b></div>'+
     '<div class="stat"><span class="muted">已绑池</span><b>'+bound+'</b></div>'+
-    '<div class="stat"><span class="muted">代理池</span><b>'+state.pools.length+'</b></div>';
+    '<div class="stat"><span class="muted">封禁</span><b>'+suspended+'</b></div>'+
+    '<div class="stat"><span class="muted">可见</span><b>'+list.length+'</b></div>';
+
+  const gSel = $('filterGroup').value;
+  const tSel = $('filterTag').value;
+  $('filterGroup').innerHTML = '<option value="">全部分组</option>' + state.groups.map(g =>
+    '<option value="'+esc(g)+'"'+(g===gSel?' selected':'')+'>'+esc(g)+'</option>').join('');
+  $('filterTag').innerHTML = '<option value="">全部标签</option>' + state.tags.map(t =>
+    '<option value="'+esc(t)+'"'+(t===tSel?' selected':'')+'>'+esc(t)+'</option>').join('');
+  $('batchPool').innerHTML = '<option value="">选择池…</option>' + state.pools.map(p =>
+    '<option value="'+esc(p.id)+'">'+esc(p.id)+'</option>').join('');
+
   $('accountBody').innerHTML = list.map(a => {
     const auth = [a.provider, a.authMethod].filter(Boolean).join(' / ') || '—';
+    const tags = (a.tags || []).map(t => '<span class="badge">'+esc(t)+'</span>').join('') || '<span class="muted">—</span>';
+    const checked = state.selected.has(a.id) ? ' checked' : '';
     return '<tr>'+
+      '<td><input type="checkbox" data-sel="'+esc(a.id)+'"'+checked+'/></td>'+
       '<td><b>'+esc(a.label||a.id)+'</b><div class="muted mono">'+esc(a.email||a.id)+'</div></td>'+
+      '<td>'+
+        '<div class="row" style="gap:4px;margin-bottom:4px"><input class="tag-edit" data-group-for="'+esc(a.id)+'" value="'+esc(a.group||'')+'" placeholder="分组"/><button type="button" data-save-meta="'+esc(a.id)+'">保存</button></div>'+
+        '<div class="row" style="gap:4px"><input class="tag-edit" style="width:160px" data-tags-for="'+esc(a.id)+'" value="'+esc((a.tags||[]).join(', '))+'" placeholder="标签,逗号分隔"/></div>'+
+        '<div style="margin-top:4px">'+tags+'</div>'+
+      '</td>'+
       '<td>'+esc(auth)+'</td>'+
       '<td>'+accountStatus(a)+'</td>'+
+      '<td>'+usageCell(a)+'</td>'+
       '<td><select data-pool-for="'+esc(a.id)+'">'+poolOptions(a.outboundPoolId||'')+'</select></td>'+
       '<td>'+exitTip(a)+'</td>'+
       '<td>'+actionMenu([
@@ -395,19 +678,23 @@ function renderAccounts() {
           {label:'换绑', attrs:'data-rebind="'+esc(a.id)+'"'},
           {label:'探测', attrs:'data-probe="'+esc(a.id)+'"'},
           {label:'刷新 Token', attrs:'data-refresh="'+esc(a.id)+'"'},
+          {label:'解封', attrs:'data-unsus="'+esc(a.id)+'"'},
           a.enabled === false
             ? {label:'启用', attrs:'data-aen="'+esc(a.id)+'"'}
             : {label:'禁用', attrs:'data-adis="'+esc(a.id)+'"'},
           {label:'删除', attrs:'data-adel="'+esc(a.id)+'"', danger:true},
         ])+'</td></tr>';
-  }).join('') || '<tr><td colspan="6" class="muted">暂无账号。到「导入」粘贴 OIDC / 账号 JSON。</td></tr>';
+  }).join('') || '<tr><td colspan="9" class="muted">暂无账号。到「导入」粘贴 OIDC / 账号 JSON。</td></tr>';
+  updateSelectedCount();
   const sel = $('probeAccount');
   const prev = sel.value;
   sel.innerHTML = '<option value="">选择账号</option>'+state.accounts.map(a =>
     '<option value="'+esc(a.id)+'">'+esc((a.label||a.email||a.id)+(a.outboundExitId?(' · '+a.outboundExitId):''))+'</option>'
   ).join('');
   if (prev) sel.value = prev;
+  bindMenuPositioning(document);
 }
+
 function renderExitChecks() {
   const q = ($('exitPickFilter').value || '').toLowerCase();
   let list = state.exits.slice();
@@ -435,9 +722,10 @@ function renderPools() {
           ? {label:'启用', attrs:'data-poolen="'+esc(p.id)+'"'}
           : {label:'停用', attrs:'data-pooldis="'+esc(p.id)+'"'},
         {label:'删除', attrs:'data-delpool="'+esc(p.id)+'"', danger:true},
-      ])+'</div></div>'+
+      ])+'</div>'+
       '<div class="mono muted" style="margin-top:8px">'+esc(ids.join(', '))+'</div></div>';
   }).join('');
+  bindMenuPositioning(document);
 }
 function renderExits() {
   const q = ($('exitFilter').value || '').toLowerCase();
@@ -476,41 +764,321 @@ function renderExits() {
         ])+'</td>'+
       '</tr>';
   }).join('') || '<tr><td colspan="8" class="muted">暂无 exits，请先在「导入」中导入</td></tr>';
+  bindMenuPositioning(document);
 }
+
+function renderApiPanel() {
+  const m = state.apiMeta;
+  if (m) {
+    const ep = m.endpoints || {};
+    $('apiMetaKv').innerHTML =
+      '<dt>Public base</dt><dd class="mono">'+esc(m.publicBaseUrl)+'</dd>'+
+      '<dt>Chat Completions</dt><dd class="mono">'+esc(ep.openaiChatCompletions)+'</dd>'+
+      '<dt>Messages</dt><dd class="mono">'+esc(ep.anthropicMessages)+'</dd>'+
+      '<dt>Messages 别名</dt><dd class="mono">'+esc(ep.anthropicMessagesAlias)+'</dd>'+
+      '<dt>Models</dt><dd class="mono">'+esc(ep.openaiModels)+'</dd>';
+    const base = m.publicBaseUrl || 'http://127.0.0.1:8787';
+    $('apiDocs').textContent =
+`# OpenAI Chat Completions
+curl -s ${base}/v1/chat/completions \\
+  -H "Authorization: Bearer $API_KEY" -H "content-type: application/json" \\
+  -d '{"model":"claude-sonnet-4.5","messages":[{"role":"user","content":"hi"}]}'
+
+# Anthropic Messages（同池 / 同粘性出口）
+curl -s ${base}/v1/messages \\
+  -H "x-api-key: $API_KEY" -H "content-type: application/json" \\
+  -H "anthropic-version: 2023-06-01" \\
+  -d '{"model":"claude-sonnet-4.5","max_tokens":256,"messages":[{"role":"user","content":"hi"}]}'
+
+# 别名
+# POST ${base}/anthropic/v1/messages
+
+# 说明
+# - 账号策略：round-robin / sticky（管理端池配置）
+# - 账号绑定代理池后，上游请求走粘性 SS 出口
+# - 不提供 MITM / machine-id / ClientHello·JA4 伪造`;
+  }
+  $('envKeyHint').textContent = state.envKey && state.envKey.configured
+    ? ('环境变量 API_KEY 已配置：' + (state.envKey.masked || '••••') + '（始终有效）')
+    : '未检测到环境变量 API_KEY；请创建下方密钥或配置 env。';
+  $('apiKeyBody').innerHTML = (state.apiKeys || []).map(k => {
+    const active = k.active !== false && !k.revokedAt;
+    return '<tr>'+
+      '<td>'+esc(k.label)+'<div class="muted mono">'+esc(k.id)+'</div></td>'+
+      '<td class="mono">'+esc(k.masked)+'</td>'+
+      '<td>'+(active?'<span class="badge ok">active</span>':'<span class="badge bad">revoked</span>')+'</td>'+
+      '<td class="muted">'+esc(k.createdAt ? new Date(k.createdAt).toLocaleString() : '')+'</td>'+
+      '<td class="row">'+
+        (active ? '<button data-revoke-key="'+esc(k.id)+'">吊销</button>' : '')+
+        '<button class="danger" data-del-key="'+esc(k.id)+'">删除</button>'+
+      '</td></tr>';
+  }).join('') || '<tr><td colspan="5" class="muted">暂无持久化密钥</td></tr>';
+
+  const map = state.modelMap || {};
+  const rows = Object.keys(map).sort().map(k =>
+    '<tr><td class="mono">'+esc(k)+'</td><td class="mono">'+esc(map[k])+'</td>'+
+    '<td><button class="danger" data-del-map="'+esc(k)+'">删除</button></td></tr>'
+  ).join('');
+  $('modelMapBody').innerHTML = rows || '<tr><td colspan="3" class="muted">无自定义映射（使用内置）</td></tr>';
+  $('builtinModels').textContent = '内置公开模型：' + (state.builtinModels || []).map(m => m.id).join(', ');
+}
+
+async function reloadRequestLog() {
+  try {
+    const q = encodeURIComponent($('logFilter').value || '');
+    const style = encodeURIComponent($('logStyle').value || '');
+    const r = await api('/request-log?q='+q+'&apiStyle='+style+'&limit=120');
+    $('logSize').textContent = (r.size||0) + ' / ' + (r.capacity||0);
+    $('requestLogBody').innerHTML = (r.entries||[]).map(e =>
+      '<tr>'+
+        '<td class="muted">'+esc(new Date(e.ts).toLocaleString())+'</td>'+
+        '<td>'+esc(e.apiStyle)+'</td>'+
+        '<td class="mono">'+esc(e.model||'')+'</td>'+
+        '<td class="mono">'+esc((e.accountId||'').slice(0,12))+'</td>'+
+        '<td>'+(e.success?'<span class="badge ok">'+e.status+'</span>':'<span class="badge bad">'+e.status+'</span>')+'</td>'+
+        '<td>'+esc(e.latencyMs)+'ms</td>'+
+        '<td class="muted">'+esc(e.error||'')+'</td>'+
+      '</tr>'
+    ).join('') || '<tr><td colspan="7" class="muted">暂无请求</td></tr>';
+  } catch (e) { toast(e.message, true); }
+}
+
 function showTab(name) {
   document.querySelectorAll('#nav button').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
-  ['accounts','pools','exits','import','probe'].forEach(t => { $('tab-'+t).hidden = t !== name; });
+  ['home','accounts','pools','exits','import','api','subs','webhooks','diagnose','probe','settings'].forEach(t => {
+    const el = $('tab-'+t); if (el) el.hidden = t !== name;
+  });
   $('pageTitle').textContent = titles[name] || name;
   const asideEl = $('aside');
   const burgerEl = $('burger');
   if (asideEl) asideEl.classList.remove('nav-open');
   if (burgerEl) burgerEl.setAttribute('aria-expanded', 'false');
+  if (name === 'api') { renderApiPanel(); reloadRequestLog(); }
+  if (name === 'subs') renderSubs();
+  if (name === 'webhooks') renderWebhooks();
+  if (name === 'diagnose') fillDiagAccounts();
+  if (name === 'home') renderDashboard();
+  if (name === 'settings') loadSettings();
 }
+
 function obsCard(title, obs) {
   if (!obs) return '';
-  if (!obs.ok) return '<div class="card"><h2>'+esc(title)+'</h2><p class="badge bad">失败</p><p class="muted">'+esc(obs.error||'')+'</p></div>';
+  if (!obs.ok) return '<div class="card"><h2>'+esc(title)+'</h2><p class="badge bad">失败</p><p>'+esc(obs.error||'')+'</p></div>';
   const alpn = (obs.alpn||[]).join(', ') || '—';
   const row = (k,v) => '<dt>'+k+'</dt><dd class="mono">'+esc(v||'—')+'</dd>';
   return '<div class="card"><h2>'+esc(title)+'</h2><dl class="kv">'+
-    row('JA4', obs.ja4)+
-    row('JA4_r', obs.ja4R)+
-    row('JA3', obs.ja3Hash || obs.ja3)+
-    row('ALPN', alpn)+
-    row('HTTP', obs.httpVersion)+
-    row('出口 IP', obs.egressIp)+
-    row('egress', obs.egress)+
+    row('JA4', obs.ja4)+ row('JA4_r', obs.ja4R)+ row('JA3', obs.ja3Hash || obs.ja3)+
+    row('ALPN', alpn)+ row('HTTP', obs.httpVersion)+ row('出口 IP', obs.egressIp)+ row('egress', obs.egress)+
     '</dl></div>';
 }
 
-;['renderAccounts','renderPools','renderExits'].forEach((name) => {
-  const orig = window[name];
-  if (typeof orig !== 'function') return;
-  window[name] = function() {
-    const r = orig.apply(this, arguments);
-    bindMenuPositioning(document);
-    return r;
-  };
-});
+
+const WH_EVENT_LABELS = {
+  account_suspended: '账号封禁',
+  all_quota_exhausted: '全配额耗尽',
+  refresh_failed: '刷新失败',
+  exit_consecutive_failures: '出口连续失败',
+  diagnose_failed: '诊断失败',
+};
+
+function renderSubs() {
+  const data = state.subs;
+  if (!data) { $('subStats').innerHTML = '<div class="muted">加载中…</div>'; return; }
+  $('subStats').innerHTML =
+    '<div class="stat"><span class="muted">账号</span><b>'+data.total+'</b></div>'+
+    '<div class="stat"><span class="muted">启用</span><b>'+data.enabled+'</b></div>'+
+    '<div class="stat"><span class="muted">禁用</span><b>'+data.disabled+'</b></div>'+
+    '<div class="stat"><span class="muted">接近限额</span><b>'+data.nearLimit+'</b></div>'+
+    '<div class="stat"><span class="muted">已耗尽</span><b>'+data.exhausted+'</b></div>'+
+    '<div class="stat"><span class="muted">封禁</span><b>'+data.suspended+'</b></div>';
+  const q = ($('subFilter').value || '').toLowerCase();
+  const focus = $('subFocus').value;
+  let rows = (data.rows || []).slice();
+  if (focus === 'near') rows = rows.filter(r => r.nearLimit);
+  if (focus === 'exhausted') rows = rows.filter(r => r.quotaExhausted);
+  if (focus === 'disabled') rows = rows.filter(r => !r.enabled);
+  if (focus === 'suspended') rows = rows.filter(r => r.suspended);
+  if (focus === 'expiring') rows = rows.filter(r => r.tokenExpiringSoon || r.tokenExpired);
+  if (q) rows = rows.filter(r => JSON.stringify(r).toLowerCase().includes(q));
+  $('subBody').innerHTML = rows.map(r => {
+    const exp = r.tokenExpiresAt ? new Date(r.tokenExpiresAt).toLocaleString() : '—';
+    const quota = r.quotaLimit > 0
+      ? (r.quotaUsed + ' / ' + r.quotaLimit + (r.quotaRatio != null ? ' ('+Math.round(r.quotaRatio*100)+'%)' : ''))
+      : (r.quotaUsed + ' / —');
+    const bits = [];
+    if (!r.enabled) bits.push('<span class="badge bad">禁用</span>');
+    else bits.push('<span class="badge ok">启用</span>');
+    if (r.suspended) bits.push('<span class="badge warn">suspended</span>');
+    if (r.quotaExhausted) bits.push('<span class="badge bad">exhausted</span>');
+    else if (r.nearLimit) bits.push('<span class="badge warn">near limit</span>');
+    if (r.tokenExpired) bits.push('<span class="badge bad">token expired</span>');
+    else if (r.tokenExpiringSoon) bits.push('<span class="badge warn">token soon</span>');
+    const pu = r.persistedUsage;
+    const usage = pu
+      ? (pu.requests+' 次 · '+(pu.inputTokens+pu.outputTokens)+' tok')
+      : (r.usageRequests+' 次 · '+r.usageTokens+' tok');
+    return '<tr>'+
+      '<td><b>'+esc(r.label)+'</b><div class="muted mono">'+esc(r.email||r.id)+'</div></td>'+
+      '<td>'+esc(r.subscriptionType)+'</td>'+
+      '<td class="muted">'+esc(exp)+'</td>'+
+      '<td class="mono">'+esc(quota)+'</td>'+
+      '<td class="mono">'+esc(usage)+'</td>'+
+      '<td>'+bits.join(' ')+'</td>'+
+      '<td><button data-refresh-sub="'+esc(r.id)+'">刷新订阅/用量</button></td>'+
+      '</tr>';
+  }).join('') || '<tr><td colspan="7" class="muted">无匹配账号</td></tr>';
+}
+
+function selectedWhEvents() {
+  return [...document.querySelectorAll('#whEvents input[type=checkbox]:checked')].map(el => el.value);
+}
+function renderWhEventChecks(selected) {
+  const events = state.whEvents.length ? state.whEvents : Object.keys(WH_EVENT_LABELS);
+  const sel = new Set(selected && selected.length ? selected : events);
+  $('whEvents').innerHTML = events.map(e =>
+    '<label class="row"><input type="checkbox" value="'+esc(e)+'"'+(sel.has(e)?' checked':'')+'/> '+esc(WH_EVENT_LABELS[e]||e)+'</label>'
+  ).join('');
+}
+function renderWebhooks() {
+  $('whFailThreshold').value = state.exitFailThreshold || 3;
+  renderWhEventChecks(state.whEvents);
+  const list = state.webhooks || [];
+  if (!list.length) {
+    $('webhookList').innerHTML = '<div class="card"><span class="muted">暂无 Webhook。上方创建一条后可点测试发送。</span></div>';
+    return;
+  }
+  $('webhookList').innerHTML = list.map(w => {
+    const ev = (w.events||[]).map(e => '<span class="badge">'+esc(WH_EVENT_LABELS[e]||e)+'</span>').join(' ');
+    return '<div class="card">'+
+      '<div class="row" style="justify-content:space-between">'+
+      '<div><b>'+esc(w.label)+'</b> <span class="badge">'+esc(w.channel)+'</span> '+
+      (w.enabled?'<span class="badge ok">启用</span>':'<span class="badge bad">停用</span>')+
+      '<div class="mono muted">'+esc(w.url)+'</div>'+
+      '<div style="margin-top:6px">'+ev+'</div>'+
+      (w.lastError ? '<div class="muted" style="color:var(--bad)">last error: '+esc(w.lastError)+'</div>' : '')+
+      '</div>'+
+      actionMenu([
+        {label:'测试发送', attrs:'data-wh-test="'+esc(w.id)+'"'},
+        w.enabled
+          ? {label:'停用', attrs:'data-wh-dis="'+esc(w.id)+'"'}
+          : {label:'启用', attrs:'data-wh-en="'+esc(w.id)+'"'},
+        {label:'删除', attrs:'data-wh-del="'+esc(w.id)+'"', danger:true},
+      ])+
+      '</div></div>';
+  }).join('');
+  bindMenuPositioning(document);
+}
+
+function fillDiagAccounts() {
+  const sel = $('diagAccount');
+  const prev = sel.value;
+  sel.innerHTML = '<option value="">选择账号</option>'+state.accounts.map(a =>
+    '<option value="'+esc(a.id)+'">'+esc(a.label||a.email||a.id)+'</option>'
+  ).join('');
+  if (prev) sel.value = prev;
+}
+
+async function loadSubs() {
+  try {
+    state.subs = await api('/subscriptions');
+    renderSubs();
+  } catch (e) { toast('订阅: '+e.message, true); }
+}
+async function loadWebhooks() {
+  try {
+    const r = await api('/webhooks');
+    state.webhooks = r.webhooks || [];
+    state.whEvents = r.events || [];
+    state.exitFailThreshold = r.exitFailThreshold || 3;
+    renderWebhooks();
+  } catch (e) { $('webhookList').textContent = e.message; }
+}
+
+
+
+function renderDashboard() {
+  const d = state.dashboard;
+  if (!d) {
+    $('dashAccountStats').innerHTML = '<div class="muted">加载中…</div>';
+    return;
+  }
+  const a = d.accounts || {};
+  const p = d.pools || {};
+  const e = d.exits || {};
+  $('dashAccountStats').innerHTML =
+    '<div class="stat"><span class="muted">账号</span><b>'+(a.total||0)+'</b></div>'+
+    '<div class="stat"><span class="muted">启用</span><b>'+(a.enabled||0)+'</b></div>'+
+    '<div class="stat"><span class="muted">禁用</span><b>'+(a.disabled||0)+'</b></div>'+
+    '<div class="stat"><span class="muted">封禁</span><b>'+(a.suspended||0)+'</b></div>'+
+    '<div class="stat"><span class="muted">可用</span><b>'+(a.available||0)+'</b></div>';
+  $('dashPoolStats').innerHTML =
+    '<div class="stat"><span class="muted">代理池</span><b>'+(p.total||0)+'</b></div>'+
+    '<div class="stat"><span class="muted">池停用</span><b>'+(p.disabled||0)+'</b></div>'+
+    '<div class="stat"><span class="muted">已绑池账号</span><b>'+(p.boundAccounts||0)+'</b></div>'+
+    '<div class="stat"><span class="muted">出口</span><b>'+(e.total||0)+'</b></div>'+
+    '<div class="stat"><span class="muted">出口活跃</span><b>'+(e.active||0)+'</b></div>'+
+    '<div class="stat"><span class="muted">出口冷却</span><b>'+(e.cooldown||0)+'</b></div>';
+  const h = d.health || {};
+  $('dashHealth').innerHTML =
+    '<dt>策略</dt><dd class="mono">'+esc(h.strategy||'')+'</dd>'+
+    '<dt>uptime</dt><dd class="mono">'+esc(Math.floor(h.uptime||0))+'s</dd>'+
+    '<dt>请求日志</dt><dd class="mono">'+(d.requestLog? (d.requestLog.size+'/'+d.requestLog.capacity) : '—')+'</dd>';
+  $('dashShortcuts').innerHTML = (d.shortcuts||[]).map(s =>
+    '<button type="button" data-tab-jump="'+esc(s.tab)+'">'+esc(s.label)+'</button>'
+  ).join('');
+  const totals = (d.usage && d.usage.totals) || {};
+  $('dashUsageTotals').textContent =
+    '累计请求 '+(totals.requests||0)+' · 成功 '+(totals.success||0)+' · 失败 '+(totals.failed||0)+
+    ' · in '+(totals.inputTokens||0)+' / out '+(totals.outputTokens||0);
+  const recent = (d.usage && d.usage.recent) || [];
+  $('dashUsageBody').innerHTML = recent.map(r =>
+    '<tr>'+
+      '<td class="muted">'+esc(new Date(r.timestamp).toLocaleString())+'</td>'+
+      '<td class="mono">'+esc((r.accountId||'').slice(0,12))+'</td>'+
+      '<td class="mono">'+esc(r.model||'')+'</td>'+
+      '<td>'+(r.success?'<span class="badge ok">ok</span>':'<span class="badge bad">fail</span>')+'</td>'+
+      '<td class="mono">'+(r.inputTokens||0)+'+'+(r.outputTokens||0)+'</td>'+
+      '<td>'+esc(r.responseTimeMs)+'ms</td>'+
+    '</tr>'
+  ).join('') || '<tr><td colspan="6" class="muted">暂无用量记录</td></tr>';
+}
+
+async function loadDashboard() {
+  try {
+    state.dashboard = await api('/dashboard');
+    renderDashboard();
+  } catch (e) { toast('首页: '+e.message, true); }
+}
+
+async function loadSettings() {
+  try {
+    const s = await api('/settings');
+    state.settings = s;
+    const pc = s.poolConfig || {};
+    $('setStrategy').value = pc.accountStrategy || 'round-robin';
+    $('setRefreshBefore').value = pc.tokenRefreshBeforeExpirySec ?? 300;
+    $('setMaxRetries').value = pc.maxRetries ?? 3;
+    $('setEndpoint').value = pc.preferredEndpoint || 'codewhisperer';
+    $('setCooldown').value = pc.baseCooldownMs ?? 60000;
+    const ops = s.opsSettings || {};
+    $('setLogCap').value = ops.requestLogCapacity || (s.requestLog && s.requestLog.capacity) || 500;
+    $('setExitFail').value = s.exitFailThreshold ?? 3;
+    $('settingsHint').textContent = '请求日志 '+(s.requestLog? (s.requestLog.size+'/'+s.requestLog.capacity):'');
+    const ab = s.about || {};
+    const health = s.health || {};
+    $('aboutKv').innerHTML =
+      '<dt>版本</dt><dd class="mono">'+esc(ab.version||'')+'</dd>'+
+      '<dt>git</dt><dd class="mono">'+esc(ab.gitCommit||'—')+'</dd>'+
+      '<dt>Node</dt><dd class="mono">'+esc(ab.node||'')+'</dd>'+
+      '<dt>平台</dt><dd class="mono">'+esc(ab.platform||'')+'</dd>'+
+      '<dt>进程 uptime</dt><dd class="mono">'+esc(ab.uptimeSec||0)+'s</dd>'+
+      '<dt>健康</dt><dd class="mono">accounts='+esc(health.accounts)+' available='+esc(health.available)+
+      ' exits='+esc(health.exits)+' pools='+esc(health.pools)+' strategy='+esc(health.strategy)+'</dd>'+
+      '<dt>dataDir</dt><dd class="mono">'+esc((s.envHints&&s.envHints.dataDir)||'')+'</dd>'+
+      '<dt>listen</dt><dd class="mono">'+esc((s.envHints&& (s.envHints.host+':'+s.envHints.port))||'')+'</dd>';
+  } catch (e) { toast('设置: '+e.message, true); }
+}
+
 
 async function refresh() {
   try {
@@ -530,17 +1098,39 @@ async function refresh() {
   try {
     const ac = await api('/accounts');
     state.accounts = ac.accounts || [];
+    state.groups = ac.groups || [];
+    state.tags = ac.tags || [];
   } catch (e) { toast('加载账号: ' + e.message, true); }
+  try {
+    state.usage = await api('/usage');
+  } catch (_) { state.usage = null; }
+  try {
+    state.apiMeta = await api('/api-meta');
+    const keys = await api('/api-keys');
+    state.apiKeys = keys.keys || [];
+    state.envKey = keys.envKey;
+    const mm = await api('/model-map');
+    state.modelMap = mm.map || {};
+    state.builtinModels = mm.builtinPublicModels || [];
+  } catch (_) { /* api tab optional until token set */ }
   renderExits();
   renderExitChecks();
   renderPools();
   renderAccounts();
+  renderApiPanel();
+  await loadSubs();
+  await loadWebhooks();
+  fillDiagAccounts();
+  await loadDashboard();
 }
+
 $('saveToken').onclick = () => { localStorage.setItem(tokenKey, $('token').value.trim()); toast('Token 已保存'); refresh(); };
 $('reload').onclick = () => refresh();
 $('exitFilter').oninput = () => renderExits();
 $('exitSort').onchange = () => renderExits();
 $('accountFilter').oninput = () => renderAccounts();
+$('filterGroup').onchange = () => renderAccounts();
+$('filterTag').onchange = () => renderAccounts();
 $('exitPickFilter').oninput = () => renderExitChecks();
 document.querySelectorAll('#nav button').forEach(btn => { btn.onclick = () => showTab(btn.dataset.tab); });
 document.body.addEventListener('change', (ev) => {
@@ -550,7 +1140,41 @@ document.body.addEventListener('change', (ev) => {
     if (t.checked) state.checked.add(t.dataset.exitCheck);
     else state.checked.delete(t.dataset.exitCheck);
   }
+  if (t.dataset.sel) {
+    if (t.checked) state.selected.add(t.dataset.sel);
+    else state.selected.delete(t.dataset.sel);
+    updateSelectedCount();
+  }
+  if (t.id === 'checkAllVisible') {
+    filteredAccounts().forEach(a => { if (t.checked) state.selected.add(a.id); else state.selected.delete(a.id); });
+    renderAccounts();
+  }
 });
+$('selectAllVisible').onclick = () => { filteredAccounts().forEach(a => state.selected.add(a.id)); renderAccounts(); };
+$('clearSelected').onclick = () => { state.selected.clear(); renderAccounts(); };
+
+async function runBatch(action) {
+  const ids = [...state.selected];
+  if (!ids.length) { toast('先勾选账号', true); return; }
+  const body = { action, ids };
+  if (action === 'bind-pool') {
+    body.poolId = $('batchPool').value;
+    if (!body.poolId) { toast('先选择代理池', true); return; }
+  }
+  if (action === 'delete') {
+    if (!confirm('确认删除选中的 ' + ids.length + ' 个账号？不可恢复。')) return;
+  }
+  try {
+    const r = await api('/accounts/batch', { method: 'POST', body: JSON.stringify(body) });
+    toast(action + '：成功 ' + r.ok + ' / 失败 ' + r.failed);
+    if (action === 'delete') state.selected.clear();
+    refresh();
+  } catch (e) { toast(e.message, true); }
+}
+document.querySelectorAll('[data-batch]').forEach(btn => {
+  btn.addEventListener('click', () => runBatch(btn.getAttribute('data-batch')));
+});
+
 (() => {
   const burger = $('burger');
   const aside = $('aside');
@@ -561,15 +1185,13 @@ document.body.addEventListener('change', (ev) => {
       burger.setAttribute('aria-expanded', open ? 'true' : 'false');
     });
   }
-  
-window.addEventListener('scroll', () => {
-  document.querySelectorAll('details.menu[open]').forEach(positionMenu);
-}, true);
-window.addEventListener('resize', () => {
-  document.querySelectorAll('details.menu[open]').forEach(positionMenu);
-});
-
-document.addEventListener('click', (ev) => {
+  window.addEventListener('scroll', () => {
+    document.querySelectorAll('details.menu[open]').forEach(positionMenu);
+  }, true);
+  window.addEventListener('resize', () => {
+    document.querySelectorAll('details.menu[open]').forEach(positionMenu);
+  });
+  document.addEventListener('click', (ev) => {
     const t = ev.target;
     if (!(t instanceof Element)) return;
     document.querySelectorAll('details.menu[open]').forEach((d) => {
@@ -577,6 +1199,7 @@ document.addEventListener('click', (ev) => {
     });
   });
 })();
+
 document.body.addEventListener('click', async (ev) => {
   const raw = ev.target;
   if (!(raw instanceof Element)) return;
@@ -631,6 +1254,9 @@ document.body.addEventListener('click', async (ev) => {
     } else if (t.dataset.refresh) {
       await api('/accounts/' + encodeURIComponent(t.dataset.refresh) + '/refresh', { method: 'POST' });
       toast('Token 已刷新'); refresh();
+    } else if (t.dataset.unsus) {
+      await api('/accounts/' + encodeURIComponent(t.dataset.unsus) + '/unsuspend', { method: 'POST' });
+      toast('已解封'); refresh();
     } else if (t.dataset.aen) {
       await api('/accounts/' + encodeURIComponent(t.dataset.aen) + '/enable', { method: 'POST' });
       toast('已启用'); refresh();
@@ -641,9 +1267,48 @@ document.body.addEventListener('click', async (ev) => {
       if (!confirm('删除账号 ' + t.dataset.adel + ' ?')) return;
       await api('/accounts/' + encodeURIComponent(t.dataset.adel), { method: 'DELETE' });
       toast('已删除'); refresh();
+    } else if (t.dataset.saveMeta) {
+      const id = t.dataset.saveMeta;
+      const gEl = document.querySelector('input[data-group-for="'+CSS.escape(id)+'"]');
+      const tEl = document.querySelector('input[data-tags-for="'+CSS.escape(id)+'"]');
+      const group = gEl ? gEl.value.trim() : '';
+      const tags = tEl ? tEl.value.split(/[,，]/).map(s => s.trim()).filter(Boolean) : [];
+      await api('/accounts/' + encodeURIComponent(id), { method: 'PATCH', body: JSON.stringify({ group: group || null, tags }) });
+      toast('分组/标签已保存'); refresh();
+    } else if (t.dataset.revokeKey) {
+      if (!confirm('吊销该 API Key？')) return;
+      await api('/api-keys/' + encodeURIComponent(t.dataset.revokeKey) + '/revoke', { method: 'POST' });
+      toast('已吊销'); refresh();
+    } else if (t.dataset.delKey) {
+      if (!confirm('删除该 API Key 记录？')) return;
+      await api('/api-keys/' + encodeURIComponent(t.dataset.delKey), { method: 'DELETE' });
+      toast('已删除'); refresh();
+
+    } else if (t.dataset.refreshSub) {
+      await api('/accounts/' + encodeURIComponent(t.dataset.refreshSub) + '/refresh-subscription', { method: 'POST' });
+      toast('订阅/用量已刷新'); loadSubs(); refresh();
+    } else if (t.dataset.whTest) {
+      const r = await api('/webhooks/' + encodeURIComponent(t.dataset.whTest) + '/test', { method: 'POST', body: '{}' });
+      toast(r.ok ? '测试发送成功' : ('测试失败: '+(r.error||'')), !r.ok); loadWebhooks();
+    } else if (t.dataset.whEn) {
+      await api('/webhooks/' + encodeURIComponent(t.dataset.whEn) + '/enable', { method: 'POST' });
+      toast('已启用'); loadWebhooks();
+    } else if (t.dataset.whDis) {
+      await api('/webhooks/' + encodeURIComponent(t.dataset.whDis) + '/disable', { method: 'POST' });
+      toast('已停用'); loadWebhooks();
+    } else if (t.dataset.whDel) {
+      if (!confirm('删除 Webhook ' + t.dataset.whDel + ' ?')) return;
+      await api('/webhooks/' + encodeURIComponent(t.dataset.whDel), { method: 'DELETE' });
+      toast('已删除'); loadWebhooks();
+    } else if (t.dataset.tabJump) {
+      showTab(t.dataset.tabJump);
+    } else if (t.dataset.delMap) {
+      await api('/model-map/' + encodeURIComponent(t.dataset.delMap), { method: 'DELETE' });
+      toast('映射已删除'); refresh();
     }
   } catch (e) { toast(e.message, true); }
 });
+
 $('selectFiltered').onclick = () => {
   document.querySelectorAll('#exitChecks input[data-exit-check]').forEach(el => {
     state.checked.add(el.dataset.exitCheck);
@@ -718,6 +1383,155 @@ $('runProbe').onclick = async () => {
     $('probeOut').innerHTML = '<div class="card"><span class="badge bad">失败</span><p>'+esc(e.message)+'</p></div>';
   }
 };
+
+$('createApiKey').onclick = async () => {
+  try {
+    const r = await api('/api-keys', { method: 'POST', body: JSON.stringify({ label: $('newKeyLabel').value.trim() }) });
+    const once = $('newKeyOnce');
+    once.hidden = false;
+    once.textContent = '新建 Key（仅显示一次）:\n' + (r.key && r.key.key ? r.key.key : JSON.stringify(r));
+    toast('API Key 已创建'); refresh();
+  } catch (e) { toast(e.message, true); }
+};
+$('addModelMap').onclick = async () => {
+  try {
+    await api('/model-map', { method: 'POST', body: JSON.stringify({
+      openaiName: $('mapFrom').value.trim(),
+      upstream: $('mapTo').value.trim(),
+    }) });
+    $('mapFrom').value = ''; $('mapTo').value = '';
+    toast('映射已保存'); refresh();
+  } catch (e) { toast(e.message, true); }
+};
+$('reloadLog').onclick = () => reloadRequestLog();
+$('logFilter').oninput = () => { clearTimeout(reloadRequestLog._t); reloadRequestLog._t = setTimeout(reloadRequestLog, 280); };
+$('logStyle').onchange = () => reloadRequestLog();
+$('clearLog').onclick = async () => {
+  if (!confirm('清空内存请求日志？')) return;
+  try { await api('/request-log', { method: 'DELETE' }); toast('已清空'); reloadRequestLog(); }
+  catch (e) { toast(e.message, true); }
+};
+
+
+$('subFilter').oninput = () => renderSubs();
+$('subFocus').onchange = () => renderSubs();
+$('reloadSubs').onclick = () => loadSubs();
+$('createWebhook').onclick = async () => {
+  try {
+    await api('/webhooks', { method: 'POST', body: JSON.stringify({
+      label: $('whLabel').value.trim(),
+      channel: $('whChannel').value,
+      url: $('whUrl').value.trim(),
+      secret: $('whSecret').value.trim() || undefined,
+      telegramChatId: $('whChatId').value.trim() || undefined,
+      maxRetries: Number($('whRetries').value) || 3,
+      events: selectedWhEvents(),
+    }) });
+    toast('Webhook 已创建');
+    $('whUrl').value = '';
+    loadWebhooks();
+  } catch (e) { toast(e.message, true); }
+};
+$('saveWhSettings').onclick = async () => {
+  try {
+    await api('/webhooks-settings', { method: 'PATCH', body: JSON.stringify({
+      exitFailThreshold: Number($('whFailThreshold').value) || 3,
+    }) });
+    toast('阈值已保存'); loadWebhooks();
+  } catch (e) { toast(e.message, true); }
+};
+$('runDiagnose').onclick = async () => {
+  const accountId = $('diagAccount').value;
+  if (!accountId) { toast('先选择账号', true); return; }
+  $('diagReport').textContent = '诊断中…';
+  $('diagSummary').innerHTML = '';
+  try {
+    const r = await api('/diagnose', { method: 'POST', body: JSON.stringify({
+      accountId,
+      doRefresh: $('diagRefresh').checked,
+      doTls: $('diagTls').checked,
+      compareDirect: $('diagDirect').checked,
+    }) });
+    state.lastDiagText = r.text || JSON.stringify(r, null, 2);
+    $('diagReport').textContent = state.lastDiagText;
+    $('diagSummary').innerHTML =
+      (r.ok ? '<span class="badge ok">OK</span>' : '<span class="badge bad">FAILED</span>')+
+      ' <span class="muted">token: '+esc(r.token && r.token.message)+' · exit: '+esc(r.exit && r.exit.message)+'</span>'+
+      ' <button type="button" class="ghost" data-tab-jump="probe">打开 TLS 探测</button>';
+  } catch (e) {
+    state.lastDiagText = e.message;
+    $('diagReport').textContent = e.message;
+    toast(e.message, true);
+  }
+};
+$('copyDiagReport').onclick = async () => {
+  try {
+    await navigator.clipboard.writeText(state.lastDiagText || $('diagReport').textContent || '');
+    toast('报告已复制');
+  } catch (e) { toast(e.message, true); }
+};
+
+
+$('saveSettings').onclick = async () => {
+  try {
+    await api('/settings', { method: 'PATCH', body: JSON.stringify({
+      poolConfig: {
+        accountStrategy: $('setStrategy').value,
+        tokenRefreshBeforeExpirySec: Number($('setRefreshBefore').value),
+        maxRetries: Number($('setMaxRetries').value),
+        preferredEndpoint: $('setEndpoint').value,
+        baseCooldownMs: Number($('setCooldown').value),
+      },
+      opsSettings: { requestLogCapacity: Number($('setLogCap').value) },
+      exitFailThreshold: Number($('setExitFail').value),
+    }) });
+    toast('设置已保存'); loadSettings();
+  } catch (e) { toast(e.message, true); }
+};
+$('exportConfig').onclick = async () => {
+  try {
+    const r = await api('/config-sync/export');
+    state.lastConfigExport = JSON.stringify(r.bundle, null, 2);
+    $('configSyncBox').value = state.lastConfigExport;
+    $('configSyncNote').textContent = (r.warnings && r.warnings.length)
+      ? ('警告: ' + r.warnings.join('; '))
+      : ('已导出 · ' + new Date(r.bundle.exportedAt).toLocaleString() + ' · 不含密钥');
+    toast('配置已导出');
+  } catch (e) { toast(e.message, true); }
+};
+$('copyConfigExport').onclick = async () => {
+  try {
+    await navigator.clipboard.writeText($('configSyncBox').value || state.lastConfigExport || '');
+    toast('已复制');
+  } catch (e) { toast(e.message, true); }
+};
+$('downloadConfigExport').onclick = () => {
+  const raw = $('configSyncBox').value || state.lastConfigExport;
+  if (!raw) { toast('先导出', true); return; }
+  const blob = new Blob([raw], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'kiro-acc-ops-config.json';
+  a.click();
+  URL.revokeObjectURL(a.href);
+};
+$('importConfig').onclick = async () => {
+  try {
+    const raw = $('configSyncBox').value.trim();
+    if (!raw) throw new Error('粘贴或导出 JSON 后再导入');
+    if (!confirm('确认合并导入运维配置？不会写入账号 Token / 出口密码 / API Key 明文。')) return;
+    const bundle = JSON.parse(raw);
+    const r = await api('/config-sync/import', {
+      method: 'POST',
+      body: JSON.stringify({ bundle, confirm: true }),
+    });
+    toast('已合并导入');
+    $('configSyncNote').textContent = r.note || 'ok';
+    refresh();
+    loadSettings();
+  } catch (e) { toast(e.message, true); }
+};
+
 refresh();
 </script>
 </body>

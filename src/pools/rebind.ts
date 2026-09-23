@@ -6,6 +6,7 @@ import {
 } from '../exits/store.js'
 import type { PoolsStore } from './store.js'
 import { pickExitFromPool } from './select.js'
+import { maybeSignalExitConsecutiveFailures } from '../webhooks/signals.js'
 
 export interface RebindResult {
   ok: boolean
@@ -50,6 +51,7 @@ export async function rebindAccountExitAfterBan(
         await deps.exits.bumpBan(previousExitId, {
           cooldownMs: deps.cooldownMs ?? DEFAULT_BAN_COOLDOWN_MS,
         })
+        void maybeSignalExitConsecutiveFailures(deps.exits, previousExitId)
       } catch (err) {
         console.warn(
           `[rebind] bumpBan failed for exit=${previousExitId}:`,

@@ -26,6 +26,8 @@ export interface ExitEntry {
   exitIpMismatch?: boolean
   useCount?: number
   banCount?: number
+  /** Consecutive probe/ban failures; reset on successful use/probe. */
+  consecutiveFailCount?: number
   disabled?: boolean
   /** Epoch ms — exit ineligible while in the future */
   cooldownUntil?: number
@@ -105,6 +107,7 @@ function normalizeEntry(e: ExitEntry): ExitEntry {
     exitIpMismatch: e.exitIpMismatch ? true : undefined,
     useCount: e.useCount != null ? Number(e.useCount) : 0,
     banCount: e.banCount != null ? Number(e.banCount) : 0,
+    consecutiveFailCount: e.consecutiveFailCount != null ? Number(e.consecutiveFailCount) : 0,
     disabled: e.disabled ? true : undefined,
     cooldownUntil: e.cooldownUntil != null ? Number(e.cooldownUntil) : undefined,
     outboundProxyUrl: e.outboundProxyUrl?.trim() || undefined,
@@ -205,6 +208,7 @@ export class ExitsStore {
   async bumpUse(id: string): Promise<ExitEntry> {
     const e = this.findMutable(id)
     e.useCount = (e.useCount ?? 0) + 1
+    e.consecutiveFailCount = 0
     this.data.updatedAt = Date.now()
     await this.file.write(this.data)
     return { ...e }
@@ -216,11 +220,28 @@ export class ExitsStore {
   ): Promise<ExitEntry> {
     const e = this.findMutable(id)
     e.banCount = (e.banCount ?? 0) + 1
+    e.consecutiveFailCount = (e.consecutiveFailCount ?? 0) + 1
     const cooldownMs = opts?.cooldownMs ?? DEFAULT_BAN_COOLDOWN_MS
     if (cooldownMs > 0) {
       const now = opts?.now ?? Date.now()
       e.cooldownUntil = now + cooldownMs
     }
+    this.data.updatedAt = Date.now()
+    await this.file.write(this.data)
+    return { ...e }
+  }
+
+  async recordExitFailure(id: string): Promise<ExitEntry> {
+    const e = this.findMutable(id)
+    e.consecutiveFailCount = (e.consecutiveFailCount ?? 0) + 1
+    this.data.updatedAt = Date.now()
+    await this.file.write(this.data)
+    return { ...e }
+  }
+
+  async resetExitFailures(id: string): Promise<ExitEntry> {
+    const e = this.findMutable(id)
+    e.consecutiveFailCount = 0
     this.data.updatedAt = Date.now()
     await this.file.write(this.data)
     return { ...e }

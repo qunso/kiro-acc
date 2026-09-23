@@ -1,5 +1,6 @@
 import type { Context, Next } from 'hono'
 import type { AppConfig } from '../config.js'
+import type { ApiKeyStore } from '../apiKeys/store.js'
 
 function extractBearer(header: string | undefined): string | null {
   if (!header) return null
@@ -7,7 +8,9 @@ function extractBearer(header: string | undefined): string | null {
   return m?.[1]?.trim() || null
 }
 
-export function apiKeyAuth(config: AppConfig) {
+export type ApiKeyValidator = { isValidKey(key: string): boolean }
+
+export function apiKeyAuth(config: AppConfig, keys?: ApiKeyStore | ApiKeyValidator) {
   return async (c: Context, next: Next) => {
     // /health is public
     if (c.req.path === '/health') return next()
@@ -17,7 +20,11 @@ export function apiKeyAuth(config: AppConfig) {
       c.req.header('x-api-key') ||
       ''
 
-    if (!config.apiKey || key !== config.apiKey) {
+    const ok = keys
+      ? keys.isValidKey(key)
+      : Boolean(config.apiKey && key === config.apiKey)
+
+    if (!ok) {
       return c.json(
         {
           error: {

@@ -19,6 +19,12 @@ import {
 import type { ExitsStore } from '../exits/store.js'
 import type { PoolsStore } from '../pools/store.js'
 import { rebindAccountExitAfterBan } from '../pools/rebind.js'
+import { recordProxyUsage } from './logUsage.js'
+import {
+  maybeSignalAllQuotaExhausted,
+  signalAccountSuspended,
+  signalRefreshFailed,
+} from '../webhooks/signals.js'
 
 export interface MessagesHandlerDeps {
   exits?: ExitsStore
@@ -144,6 +150,7 @@ export function messagesHandler(
           store.pool.recordError(account.id, ErrorType.RECOVERABLE, 403)
           tried.add(account.id)
           lastError = new Error(result.error || 'Token refresh failed')
+          void signalRefreshFailed(account.id, lastError.message)
           continue
         }
       }
@@ -169,7 +176,7 @@ export function messagesHandler(
           result.usage.outputTokens,
           responseTime,
         )
-        await store.recordUsage({
+        await recordProxyUsage(store, {
           timestamp: Date.now(),
           accountId: account.id,
           model: body.model,
@@ -177,19 +184,21 @@ export function messagesHandler(
           outputTokens: result.usage.outputTokens,
           success: true,
           responseTimeMs: responseTime,
-        })
+        }, { path: '/v1/messages', apiStyle: 'anthropic', status: 200 })
         return c.json(kiroToClaudeResponse(result.content, result.toolUses, result.usage, body.model))
       } catch (err) {
         lastError = err instanceof Error ? err : new Error(String(err))
         const status = err instanceof KiroApiError ? err.statusCode : 500
         const reason = err instanceof KiroApiError ? err.reason : undefined
         if (reason === 'TEMPORARILY_SUSPENDED') {
-          store.pool.markSuspended(account.id, reason, lastError.message)
+          const newly = store.pool.markSuspended(account.id, reason, lastError.message)
+          if (newly) void signalAccountSuspended(account.id, reason, lastError.message)
           await maybeRebindAfterSuspend(store, account.id, deps)
         }
         const errorType = classifyError(status, reason)
         store.pool.recordError(account.id, errorType, status)
-        await store.recordUsage({
+        void maybeSignalAllQuotaExhausted(store)
+        await recordProxyUsage(store, {
           timestamp: Date.now(),
           accountId: account.id,
           model: body.model,
@@ -198,7 +207,7 @@ export function messagesHandler(
           success: false,
           error: lastError.message,
           responseTimeMs: Date.now() - started,
-        })
+        }, { path: '/v1/messages', apiStyle: 'anthropic', status: status >= 400 && status < 600 ? status : 502 })
         tried.add(account.id)
         if (errorType === ErrorType.FATAL || attempt === maxRetries) {
           const http = status >= 400 && status < 600 ? status : 502
@@ -260,7 +269,7 @@ async function handleClaudeStream(
           usage.outputTokens,
           responseTime,
         )
-        await store.recordUsage({
+        await recordProxyUsage(store, {
           timestamp: Date.now(),
           accountId,
           model: body.model,
@@ -268,19 +277,21 @@ async function handleClaudeStream(
           outputTokens: usage.outputTokens,
           success: true,
           responseTimeMs: responseTime,
-        })
+        }, { path: '/v1/messages', apiStyle: 'anthropic', status: 200 })
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err)
         const status = err instanceof KiroApiError ? err.statusCode : 500
         const reason = err instanceof KiroApiError ? err.reason : undefined
         if (reason === 'TEMPORARILY_SUSPENDED') {
-          store.pool.markSuspended(accountId, reason, message)
+          const newly = store.pool.markSuspended(accountId, reason, message)
+          if (newly) void signalAccountSuspended(accountId, reason, message)
           await maybeRebindAfterSuspend(store, accountId, deps)
         }
         store.pool.recordError(accountId, classifyError(status, reason), status)
+        void maybeSignalAllQuotaExhausted(store)
         send(sse.fail(message))
         controller.close()
-        await store.recordUsage({
+        await recordProxyUsage(store, {
           timestamp: Date.now(),
           accountId,
           model: body.model,
@@ -289,7 +300,7 @@ async function handleClaudeStream(
           success: false,
           error: message,
           responseTimeMs: Date.now() - started,
-        })
+        }, { path: '/v1/messages', apiStyle: 'anthropic', status: status >= 400 && status < 600 ? status : 502 })
       }
     },
   })
