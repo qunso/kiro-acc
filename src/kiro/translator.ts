@@ -155,6 +155,23 @@ export interface KiroUsage {
   reasoningTokens?: number
 }
 
+/** Runtime overrides from data/model-map.json (OpenAI name → upstream). */
+let customModelMap: Record<string, string> = {}
+
+export function setCustomModelMap(map: Record<string, string>): void {
+  const next: Record<string, string> = {}
+  for (const [k, v] of Object.entries(map || {})) {
+    const key = String(k).trim().toLowerCase()
+    const val = String(v).trim()
+    if (key && val) next[key] = val
+  }
+  customModelMap = next
+}
+
+export function getCustomModelMap(): Record<string, string> {
+  return { ...customModelMap }
+}
+
 const MODEL_ID_MAP: Record<string, string> = {
   'claude-sonnet-4-5': 'claude-sonnet-4.5',
   'claude-sonnet-4.5': 'claude-sonnet-4.5',
@@ -190,6 +207,7 @@ export function mapModelId(model: string): string {
   if (/^[A-Z0-9_]+$/.test(modelId) && modelId.includes('CLAUDE')) return modelId
   modelId = normalizeClaudeVersion(modelId)
   const lower = modelId.toLowerCase()
+  if (customModelMap[lower]) return customModelMap[lower]!
   if (MODEL_ID_MAP[lower]) return MODEL_ID_MAP[lower]!
   if (/^claude-(sonnet|haiku|opus)-/.test(lower)) return modelId
   return MODEL_ID_MAP.default!

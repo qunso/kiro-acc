@@ -19,7 +19,7 @@
 
 | 能力 | 桌面版 (Electron) | 本服务端 |
 |------|-------------------|----------|
-| UI / 托盘 | ✅ Electron | `/admin/ui`（账户管理 / 代理池 / 出口 / 导入 / TLS 探测） |
+| UI / 托盘 | ✅ Electron | `/admin/ui`（账户 / 代理池 / 出口 / 导入 / API 反代 / TLS 探测） |
 | OpenAI 兼容反代 | ✅ | ✅ |
 | 多账号池 + 断路器 | ✅ | ✅ |
 | Claude Messages API | ✅ | ✅ `/v1/messages` |
@@ -233,6 +233,14 @@ Claude Code 可将 `ANTHROPIC_BASE_URL` 指到 `http://127.0.0.1:8787`，`ANTHRO
 | PATCH | `/admin/pool/config` | 改策略/冷却等 |
 | POST | `/admin/pool/reset` | 重置断路器状态 |
 | GET | `/admin/usage` | 用量 |
+| POST | `/admin/accounts/batch` | 批量：refresh/enable/disable/unsuspend/delete/bind-pool/set-meta |
+| GET | `/admin/api-meta` | 反代对外 URL / 端点提示 |
+| GET/POST | `/admin/api-keys` | 列出 / 创建 API Key（持久化） |
+| POST | `/admin/api-keys/:id/revoke` | 吊销 |
+| DELETE | `/admin/api-keys/:id` | 删除记录 |
+| GET/PUT/POST | `/admin/model-map` | 自定义 OpenAI名→上游 映射 |
+| DELETE | `/admin/model-map/:name` | 删除映射 |
+| GET/DELETE | `/admin/request-log` | 内存环形请求日志 |
 | GET | `/admin/exits` | 出口列表 |
 | POST | `/admin/exits/import` | 导入 SS catalog / 遗留 broker |
 | POST | `/admin/exits/assign` | sticky / rr 分配到账号（非池） |

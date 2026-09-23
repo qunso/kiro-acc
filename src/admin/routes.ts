@@ -11,15 +11,27 @@ import type { PoolsStore, ProxyPool } from '../pools/store.js'
 import { assignAccountToPool, rebindAccountExitAfterBan } from '../pools/rebind.js'
 import { probeMany } from '../exits/probe.js'
 import { probeTlsFingerprint } from './tlsProbe.js'
+import type { ApiKeyStore } from '../apiKeys/store.js'
+import type { ModelMapStore } from '../proxy/modelMapStore.js'
+import { globalRequestLog } from '../proxy/requestLog.js'
+import { mapModelId, PUBLIC_MODELS } from '../kiro/translator.js'
+
+export interface AdminRouteExtras {
+  apiKeys?: ApiKeyStore
+  modelMap?: ModelMapStore
+}
 
 export function createAdminRoutes(
   store: AccountStore,
   config: AppConfig,
   exitsStore?: ExitsStore,
   poolsStore?: PoolsStore,
+  extras?: AdminRouteExtras,
 ): Hono {
   const app = new Hono()
   app.use('*', adminAuth(config))
+  const apiKeys = extras?.apiKeys
+  const modelMap = extras?.modelMap
 
   function assignedExit(acc: AccountRecord) {
     if (!acc.outboundPoolId && !acc.outboundExitId) return null
@@ -35,7 +47,36 @@ export function createAdminRoutes(
     return { ...acc, assignedExit: assignedExit(acc) }
   }
 
-  app.get('/accounts', (c) => c.json({ accounts: store.list().map(withExit) }))
+  app.get('/accounts', (c) => {
+    const q = (c.req.query('q') || '').trim().toLowerCase()
+    const group = (c.req.query('group') || '').trim().toLowerCase()
+    const tag = (c.req.query('tag') || '').trim().toLowerCase()
+    let accounts = store.list().map(withExit)
+    if (group) {
+      accounts = accounts.filter((a) => (a.group || '').toLowerCase() === group)
+    }
+    if (tag) {
+      accounts = accounts.filter((a) => (a.tags || []).some((t) => t.toLowerCase() === tag))
+    }
+    if (q) {
+      accounts = accounts.filter((a) =>
+        JSON.stringify({
+          label: a.label,
+          email: a.email,
+          group: a.group,
+          tags: a.tags,
+          pool: a.outboundPoolId,
+          exit: a.outboundExitId,
+          ip: a.assignedExit?.exitIp,
+        })
+          .toLowerCase()
+          .includes(q),
+      )
+    }
+    const groups = [...new Set(store.list().map((a) => a.group).filter(Boolean) as string[])].sort()
+    const tags = [...new Set(store.list().flatMap((a) => a.tags || []))].sort()
+    return c.json({ accounts, groups, tags })
+  })
 
   app.get('/accounts/:id', (c) => {
     const acc = store.get(c.req.param('id'))
@@ -58,7 +99,12 @@ export function createAdminRoutes(
 
   app.patch('/accounts/:id', async (c) => {
     try {
-      const updated = await store.update(c.req.param('id'), await c.req.json())
+      const body = (await c.req.json()) as Record<string, unknown>
+      if (body.group === null) body.group = undefined
+      if (Array.isArray(body.tags)) {
+        body.tags = [...new Set(body.tags.map((t) => String(t).trim()).filter(Boolean))]
+      }
+      const updated = await store.update(c.req.param('id'), body as never)
       return c.json(withExit(updated))
     } catch (err) {
       return c.json({ error: err instanceof Error ? err.message : String(err) }, 404)
@@ -109,6 +155,126 @@ export function createAdminRoutes(
     const acc = store.get(c.req.param('id'))
     if (!acc) return c.json({ error: 'Not found' }, 404)
     return c.json(withExit(acc))
+  })
+
+  /**
+   * Batch account ops for admin UI.
+   * action: refresh | enable | disable | unsuspend | delete | bind-pool | set-meta
+   */
+  app.post('/accounts/batch', async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as {
+      action?: string
+      ids?: string[]
+      poolId?: string
+      group?: string | null
+      tags?: string[]
+    }
+    const action = (body.action || '').trim()
+    const ids = Array.isArray(body.ids) ? [...new Set(body.ids.map(String))] : []
+    if (!action) return c.json({ error: 'action is required' }, 400)
+    if (!ids.length) return c.json({ error: 'ids array required' }, 400)
+
+    const results: Array<{ id: string; ok: boolean; error?: string }> = []
+
+    for (const id of ids) {
+      try {
+        const acc = store.get(id)
+        if (!acc && action !== 'delete') {
+          results.push({ id, ok: false, error: 'Not found' })
+          continue
+        }
+        switch (action) {
+          case 'enable':
+            await store.setEnabled(id, true)
+            results.push({ id, ok: true })
+            break
+          case 'disable':
+            await store.setEnabled(id, false)
+            results.push({ id, ok: true })
+            break
+          case 'unsuspend':
+            store.pool.clearSuspended(id)
+            await store.flush()
+            results.push({ id, ok: true })
+            break
+          case 'delete': {
+            const ok = await store.remove(id)
+            results.push({ id, ok, error: ok ? undefined : 'Not found' })
+            break
+          }
+          case 'refresh': {
+            if (!acc) {
+              results.push({ id, ok: false, error: 'Not found' })
+              break
+            }
+            const result = await refreshAccountToken(acc)
+            if (!result.success || !result.accessToken) {
+              results.push({ id, ok: false, error: result.error || 'Refresh failed' })
+              break
+            }
+            await store.applyTokenRefresh(acc.id, {
+              accessToken: result.accessToken,
+              refreshToken: result.refreshToken,
+              expiresAt: result.expiresAt,
+            })
+            store.pool.updateAccount(acc.id, { isAvailable: true })
+            results.push({ id, ok: true })
+            break
+          }
+          case 'bind-pool': {
+            if (!exitsStore || !poolsStore) {
+              results.push({ id, ok: false, error: 'exits/pools store not initialized' })
+              break
+            }
+            if (!acc) {
+              results.push({ id, ok: false, error: 'Not found' })
+              break
+            }
+            const poolId = body.poolId?.trim()
+            if (!poolId) {
+              results.push({ id, ok: false, error: 'poolId is required' })
+              break
+            }
+            const result = await assignAccountToPool(acc, poolId, {
+              accounts: store,
+              exits: exitsStore,
+              pools: poolsStore,
+            })
+            results.push({
+              id,
+              ok: result.ok,
+              error: result.ok ? undefined : result.error || 'bind failed',
+            })
+            break
+          }
+          case 'set-meta': {
+            const patch: { group?: string; tags?: string[] } = {}
+            if (body.group !== undefined) {
+              patch.group = body.group === null || body.group === '' ? undefined : String(body.group)
+            }
+            if (body.tags !== undefined) {
+              patch.tags = Array.isArray(body.tags)
+                ? [...new Set(body.tags.map((t) => String(t).trim()).filter(Boolean))]
+                : []
+            }
+            await store.update(id, patch)
+            results.push({ id, ok: true })
+            break
+          }
+          default:
+            return c.json({ error: `unknown action: ${action}` }, 400)
+        }
+      } catch (err) {
+        results.push({
+          id,
+          ok: false,
+          error: err instanceof Error ? err.message : String(err),
+        })
+      }
+    }
+
+    const ok = results.filter((r) => r.ok).length
+    return c.json({ action, ok, failed: results.length - ok, results })
   })
 
   app.post('/accounts/:id/bind-pool', async (c) => {
@@ -535,6 +701,134 @@ export function createAdminRoutes(
   })
 
   app.get('/usage', async (c) => c.json(await store.getUsage()))
+
+  // --- API reverse-proxy admin ---
+
+  app.get('/api-meta', (c) => {
+    const proto = c.req.header('x-forwarded-proto') || 'http'
+    const host = c.req.header('x-forwarded-host') || c.req.header('host') || `${config.host}:${config.port}`
+    const base = `${proto}://${host}`.replace(/\/$/, '')
+    return c.json({
+      publicBaseUrl: base,
+      listen: `http://${config.host}:${config.port}`,
+      endpoints: {
+        openaiChatCompletions: `${base}/v1/chat/completions`,
+        openaiModels: `${base}/v1/models`,
+        anthropicMessages: `${base}/v1/messages`,
+        anthropicMessagesAlias: `${base}/anthropic/v1/messages`,
+        anthropicCountTokens: `${base}/v1/messages/count_tokens`,
+      },
+      auth: {
+        headerBearer: 'Authorization: Bearer <API_KEY>',
+        headerXApiKey: 'x-api-key: <API_KEY>',
+        envKeyConfigured: Boolean(config.apiKey),
+        envKeyMasked: apiKeys?.envKeyMasked() || (config.apiKey ? '••••' : ''),
+      },
+      notes: [
+        '账号选择：round-robin / sticky（见池配置）。',
+        '出站：账号绑定代理池后，请求走粘性 SS 出口；未绑池则直连或全局代理。',
+        'Messages 与 Chat Completions 共用账号池与出站绑定。',
+      ],
+    })
+  })
+
+  app.get('/api-keys', (c) => {
+    if (!apiKeys) return c.json({ error: 'api keys store not initialized' }, 500)
+    return c.json({
+      keys: apiKeys.listPublic(),
+      envKey: { configured: apiKeys.hasEnvKey(), masked: apiKeys.envKeyMasked() },
+    })
+  })
+
+  app.post('/api-keys', async (c) => {
+    if (!apiKeys) return c.json({ error: 'api keys store not initialized' }, 500)
+    const body = (await c.req.json().catch(() => ({}))) as { label?: string }
+    const created = await apiKeys.create(body.label || '')
+    // Return full key once
+    return c.json({ key: created, warning: 'Copy the key now; it will be masked in subsequent listings.' }, 201)
+  })
+
+  app.patch('/api-keys/:id', async (c) => {
+    if (!apiKeys) return c.json({ error: 'api keys store not initialized' }, 500)
+    const body = (await c.req.json().catch(() => ({}))) as { label?: string }
+    if (body.label === undefined) return c.json({ error: 'label required' }, 400)
+    const updated = await apiKeys.updateLabel(c.req.param('id'), body.label)
+    if (!updated) return c.json({ error: 'Not found' }, 404)
+    return c.json({ ok: true, id: updated.id, label: updated.label })
+  })
+
+  app.post('/api-keys/:id/revoke', async (c) => {
+    if (!apiKeys) return c.json({ error: 'api keys store not initialized' }, 500)
+    const updated = await apiKeys.revoke(c.req.param('id'))
+    if (!updated) return c.json({ error: 'Not found' }, 404)
+    return c.json({ ok: true, id: updated.id, revokedAt: updated.revokedAt })
+  })
+
+  app.delete('/api-keys/:id', async (c) => {
+    if (!apiKeys) return c.json({ error: 'api keys store not initialized' }, 500)
+    const ok = await apiKeys.remove(c.req.param('id'))
+    if (!ok) return c.json({ error: 'Not found' }, 404)
+    return c.json({ ok: true })
+  })
+
+  app.get('/model-map', (c) => {
+    const custom = modelMap?.get() || {}
+    const resolvedSamples = Object.keys(custom).slice(0, 20).map((k) => ({
+      from: k,
+      to: custom[k],
+      via: 'custom' as const,
+    }))
+    return c.json({
+      map: custom,
+      builtinPublicModels: PUBLIC_MODELS,
+      samples: resolvedSamples,
+      note: 'Custom entries override builtin OpenAI→upstream mapping used by chat completions / messages.',
+    })
+  })
+
+  app.put('/model-map', async (c) => {
+    if (!modelMap) return c.json({ error: 'model map store not initialized' }, 500)
+    const body = (await c.req.json().catch(() => ({}))) as { map?: Record<string, string> }
+    if (!body.map || typeof body.map !== 'object') {
+      return c.json({ error: 'map object required' }, 400)
+    }
+    const next = await modelMap.set(body.map)
+    return c.json({ map: next })
+  })
+
+  app.post('/model-map', async (c) => {
+    if (!modelMap) return c.json({ error: 'model map store not initialized' }, 500)
+    const body = (await c.req.json().catch(() => ({}))) as { openaiName?: string; upstream?: string }
+    try {
+      const next = await modelMap.upsert(body.openaiName || '', body.upstream || '')
+      return c.json({ map: next, resolved: mapModelId(body.openaiName || '') })
+    } catch (err) {
+      return c.json({ error: err instanceof Error ? err.message : String(err) }, 400)
+    }
+  })
+
+  app.delete('/model-map/:name', async (c) => {
+    if (!modelMap) return c.json({ error: 'model map store not initialized' }, 500)
+    const next = await modelMap.remove(decodeURIComponent(c.req.param('name')))
+    return c.json({ map: next })
+  })
+
+  app.get('/request-log', (c) => {
+    const q = c.req.query('q') || undefined
+    const pathQ = c.req.query('path') || undefined
+    const apiStyle = c.req.query('apiStyle') || undefined
+    const limit = Number(c.req.query('limit') || 100)
+    return c.json({
+      size: globalRequestLog.size,
+      capacity: globalRequestLog.capacity,
+      entries: globalRequestLog.list({ q, path: pathQ, apiStyle, limit }),
+    })
+  })
+
+  app.delete('/request-log', (c) => {
+    globalRequestLog.clear()
+    return c.json({ ok: true })
+  })
 
   return app
 }

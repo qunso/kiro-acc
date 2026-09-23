@@ -25,6 +25,7 @@ import {
 import type { ExitsStore } from '../exits/store.js'
 import type { PoolsStore } from '../pools/store.js'
 import { rebindAccountExitAfterBan } from '../pools/rebind.js'
+import { recordProxyUsage } from './logUsage.js'
 
 export function listModelsHandler() {
   return (c: Context) =>
@@ -162,7 +163,7 @@ export function chatCompletionsHandler(
           result.usage.outputTokens,
           responseTime,
         )
-        await store.recordUsage({
+        await recordProxyUsage(store, {
           timestamp: Date.now(),
           accountId: account.id,
           model: body.model,
@@ -170,7 +171,7 @@ export function chatCompletionsHandler(
           outputTokens: result.usage.outputTokens,
           success: true,
           responseTimeMs: responseTime,
-        })
+        }, { path: '/v1/chat/completions', apiStyle: 'openai', status: 200 })
 
         return c.json(
           kiroToOpenaiResponse(result.content, result.toolUses, result.usage, body.model),
@@ -187,7 +188,7 @@ export function chatCompletionsHandler(
 
         const errorType = classifyError(status, reason)
         store.pool.recordError(account.id, errorType, status)
-        await store.recordUsage({
+        await recordProxyUsage(store, {
           timestamp: Date.now(),
           accountId: account.id,
           model: body.model,
@@ -196,7 +197,7 @@ export function chatCompletionsHandler(
           success: false,
           error: lastError.message,
           responseTimeMs: Date.now() - started,
-        })
+        }, { path: '/v1/chat/completions', apiStyle: 'openai', status: status >= 400 && status < 600 ? status : 502 })
 
         tried.add(account.id)
 
@@ -318,7 +319,7 @@ async function handleStream(
           usage.outputTokens,
           responseTime,
         )
-        await store.recordUsage({
+        await recordProxyUsage(store, {
           timestamp: Date.now(),
           accountId,
           model: body.model,
@@ -326,7 +327,7 @@ async function handleStream(
           outputTokens: usage.outputTokens,
           success: true,
           responseTimeMs: responseTime,
-        })
+        }, { path: '/v1/chat/completions', apiStyle: 'openai', status: 200 })
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err)
         const status = err instanceof KiroApiError ? err.statusCode : 500
@@ -341,7 +342,7 @@ async function handleStream(
         })
         controller.enqueue(encoder.encode('data: [DONE]\n\n'))
         controller.close()
-        await store.recordUsage({
+        await recordProxyUsage(store, {
           timestamp: Date.now(),
           accountId,
           model: body.model,
@@ -350,7 +351,7 @@ async function handleStream(
           success: false,
           error: message,
           responseTimeMs: Date.now() - started,
-        })
+        }, { path: '/v1/chat/completions', apiStyle: 'openai', status: status >= 400 && status < 600 ? status : 502 })
       }
     },
   })
