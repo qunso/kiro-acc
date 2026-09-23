@@ -20,6 +20,11 @@ import type { ExitsStore } from '../exits/store.js'
 import type { PoolsStore } from '../pools/store.js'
 import { rebindAccountExitAfterBan } from '../pools/rebind.js'
 import { recordProxyUsage } from './logUsage.js'
+import {
+  maybeSignalAllQuotaExhausted,
+  signalAccountSuspended,
+  signalRefreshFailed,
+} from '../webhooks/signals.js'
 
 export interface MessagesHandlerDeps {
   exits?: ExitsStore
@@ -145,6 +150,7 @@ export function messagesHandler(
           store.pool.recordError(account.id, ErrorType.RECOVERABLE, 403)
           tried.add(account.id)
           lastError = new Error(result.error || 'Token refresh failed')
+          void signalRefreshFailed(account.id, lastError.message)
           continue
         }
       }
@@ -185,11 +191,13 @@ export function messagesHandler(
         const status = err instanceof KiroApiError ? err.statusCode : 500
         const reason = err instanceof KiroApiError ? err.reason : undefined
         if (reason === 'TEMPORARILY_SUSPENDED') {
-          store.pool.markSuspended(account.id, reason, lastError.message)
+          const newly = store.pool.markSuspended(account.id, reason, lastError.message)
+          if (newly) void signalAccountSuspended(account.id, reason, lastError.message)
           await maybeRebindAfterSuspend(store, account.id, deps)
         }
         const errorType = classifyError(status, reason)
         store.pool.recordError(account.id, errorType, status)
+        void maybeSignalAllQuotaExhausted(store)
         await recordProxyUsage(store, {
           timestamp: Date.now(),
           accountId: account.id,
@@ -275,10 +283,12 @@ async function handleClaudeStream(
         const status = err instanceof KiroApiError ? err.statusCode : 500
         const reason = err instanceof KiroApiError ? err.reason : undefined
         if (reason === 'TEMPORARILY_SUSPENDED') {
-          store.pool.markSuspended(accountId, reason, message)
+          const newly = store.pool.markSuspended(accountId, reason, message)
+          if (newly) void signalAccountSuspended(accountId, reason, message)
           await maybeRebindAfterSuspend(store, accountId, deps)
         }
         store.pool.recordError(accountId, classifyError(status, reason), status)
+        void maybeSignalAllQuotaExhausted(store)
         send(sse.fail(message))
         controller.close()
         await recordProxyUsage(store, {

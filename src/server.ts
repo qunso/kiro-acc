@@ -7,17 +7,20 @@ import type { ExitsStore } from './exits/store.js'
 import type { PoolsStore } from './pools/store.js'
 import type { ApiKeyStore } from './apiKeys/store.js'
 import type { ModelMapStore } from './proxy/modelMapStore.js'
+import type { WebhookStore } from './webhooks/store.js'
 import { createAdminRoutes } from './admin/routes.js'
 import { loadAdminUiHtml } from './admin/uiHtml.js'
 import { apiKeyAuth } from './middleware/auth.js'
 import { chatCompletionsHandler, listModelsHandler } from './proxy/openaiHandler.js'
 import { countTokensHandler, messagesHandler } from './proxy/messagesHandler.js'
+import { setGlobalWebhookStore } from './webhooks/dispatch.js'
 
 export interface ServerDeps {
   exits?: ExitsStore
   pools?: PoolsStore
   apiKeys?: ApiKeyStore
   modelMap?: ModelMapStore
+  webhooks?: WebhookStore
 }
 
 export function createServer(
@@ -30,6 +33,8 @@ export function createServer(
   const app = new Hono()
   const apiKeys = extra?.apiKeys
   const modelMap = extra?.modelMap
+  const webhooks = extra?.webhooks
+  setGlobalWebhookStore(webhooks)
 
   app.use('*', cors())
   app.use('*', logger())
@@ -54,18 +59,19 @@ export function createServer(
   v1.post('/messages', messagesHandler(store, config, { exits, pools }))
   app.route('/v1', v1)
 
-  // Same handlers under the path the original desktop proxy also accepted.
   const anthropic = new Hono()
   anthropic.use('*', apiKeyAuth(config, apiKeys))
   anthropic.post('/messages/count_tokens', countTokensHandler())
   anthropic.post('/messages', messagesHandler(store, config, { exits, pools }))
   app.route('/anthropic/v1', anthropic)
 
-  // Visual admin (token entered in-page; API still requires x-admin-token)
   app.get('/admin/ui', (c) => c.html(loadAdminUiHtml()))
   app.get('/admin/ui/', (c) => c.html(loadAdminUiHtml()))
 
-  app.route('/admin', createAdminRoutes(store, config, exits, pools, { apiKeys, modelMap }))
+  app.route(
+    '/admin',
+    createAdminRoutes(store, config, exits, pools, { apiKeys, modelMap, webhooks }),
+  )
 
   app.notFound((c) =>
     c.json({ error: { message: `Not found: ${c.req.method} ${c.req.path}`, type: 'not_found' } }, 404),

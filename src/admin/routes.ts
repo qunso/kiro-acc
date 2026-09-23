@@ -15,10 +15,17 @@ import type { ApiKeyStore } from '../apiKeys/store.js'
 import type { ModelMapStore } from '../proxy/modelMapStore.js'
 import { globalRequestLog } from '../proxy/requestLog.js'
 import { mapModelId, PUBLIC_MODELS } from '../kiro/translator.js'
+import type { WebhookStore } from '../webhooks/store.js'
+import { WEBHOOK_EVENTS, type WebhookChannel, type WebhookEvent } from '../webhooks/types.js'
+import { sendWebhookWithRetry } from '../webhooks/dispatch.js'
+import { signalDiagnoseFailed, signalRefreshFailed } from '../webhooks/signals.js'
+import { buildSubscriptionSummary, usageByAccount } from './subscription.js'
+import { diagnoseAccount } from './diagnose.js'
 
 export interface AdminRouteExtras {
   apiKeys?: ApiKeyStore
   modelMap?: ModelMapStore
+  webhooks?: WebhookStore
 }
 
 export function createAdminRoutes(
@@ -32,6 +39,7 @@ export function createAdminRoutes(
   app.use('*', adminAuth(config))
   const apiKeys = extras?.apiKeys
   const modelMap = extras?.modelMap
+  const webhooks = extras?.webhooks
 
   function assignedExit(acc: AccountRecord) {
     if (!acc.outboundPoolId && !acc.outboundExitId) return null
@@ -138,6 +146,7 @@ export function createAdminRoutes(
     if (!acc) return c.json({ error: 'Not found' }, 404)
     const result = await refreshAccountToken(acc)
     if (!result.success || !result.accessToken) {
+      void signalRefreshFailed(acc.id, result.error || 'Refresh failed')
       return c.json({ error: result.error || 'Refresh failed' }, 502)
     }
     await store.applyTokenRefresh(acc.id, {
@@ -828,6 +837,202 @@ export function createAdminRoutes(
   app.delete('/request-log', (c) => {
     globalRequestLog.clear()
     return c.json({ ok: true })
+  })
+
+  // --- Subscription / usage (derived from local pool + auth metadata) ---
+
+  app.get('/subscriptions', async (c) => {
+    const summary = buildSubscriptionSummary(store.list())
+    const usage = await store.getUsage()
+    const byAccount = usageByAccount(usage)
+    const rows = summary.rows.map((r) => ({
+      ...r,
+      persistedUsage: byAccount[r.id] || null,
+    }))
+    return c.json({
+      ...summary,
+      rows,
+      note: 'subscriptionType is derived from provider/authMethod; quota from local pool metering; no remote subscription upgrade API.',
+      poolQuota: store.pool.getQuotaStatus(),
+      usageTotals: usage.totals,
+    })
+  })
+
+  app.post('/accounts/:id/refresh-subscription', async (c) => {
+    const id = c.req.param('id')
+    const acc = store.get(id)
+    if (!acc) return c.json({ error: 'Not found' }, 404)
+    const result = await refreshAccountToken(acc)
+    if (!result.success || !result.accessToken) {
+      void signalRefreshFailed(id, result.error || 'Refresh failed')
+      return c.json({ error: result.error || 'Refresh failed', refreshed: false }, 502)
+    }
+    await store.applyTokenRefresh(id, {
+      accessToken: result.accessToken,
+      refreshToken: result.refreshToken,
+      expiresAt: result.expiresAt,
+    })
+    store.pool.updateAccount(id, { isAvailable: true })
+    await store.flush()
+    const updated = store.get(id)!
+    const row = buildSubscriptionSummary([updated]).rows[0]
+    const usage = await store.getUsage()
+    return c.json({
+      ok: true,
+      refreshed: true,
+      account: withExit(updated),
+      subscription: { ...row, persistedUsage: usageByAccount(usage)[id] || null },
+    })
+  })
+
+  // --- Webhooks ---
+
+  app.get('/webhooks', (c) => {
+    if (!webhooks) return c.json({ error: 'webhooks store not initialized' }, 500)
+    return c.json({
+      webhooks: webhooks.list(),
+      events: WEBHOOK_EVENTS,
+      channels: ['dingtalk', 'telegram', 'discord', 'slack', 'generic'],
+      exitFailThreshold: webhooks.getExitFailThreshold(),
+    })
+  })
+
+  app.post('/webhooks', async (c) => {
+    if (!webhooks) return c.json({ error: 'webhooks store not initialized' }, 500)
+    try {
+      const body = (await c.req.json()) as {
+        label?: string
+        channel?: WebhookChannel
+        url?: string
+        enabled?: boolean
+        events?: WebhookEvent[]
+        secret?: string
+        telegramChatId?: string
+        maxRetries?: number
+      }
+      if (!body.url || !body.channel) {
+        return c.json({ error: 'channel and url are required' }, 400)
+      }
+      const created = await webhooks.create({
+        label: body.label || '',
+        channel: body.channel,
+        url: body.url,
+        enabled: body.enabled,
+        events: body.events,
+        secret: body.secret,
+        telegramChatId: body.telegramChatId,
+        maxRetries: body.maxRetries,
+      })
+      return c.json(created, 201)
+    } catch (err) {
+      return c.json({ error: err instanceof Error ? err.message : String(err) }, 400)
+    }
+  })
+
+  app.patch('/webhooks/:id', async (c) => {
+    if (!webhooks) return c.json({ error: 'webhooks store not initialized' }, 500)
+    try {
+      const updated = await webhooks.update(c.req.param('id'), await c.req.json())
+      return c.json(updated)
+    } catch (err) {
+      return c.json({ error: err instanceof Error ? err.message : String(err) }, 404)
+    }
+  })
+
+  app.post('/webhooks/:id/enable', async (c) => {
+    if (!webhooks) return c.json({ error: 'webhooks store not initialized' }, 500)
+    try {
+      return c.json(await webhooks.setEnabled(c.req.param('id'), true))
+    } catch (err) {
+      return c.json({ error: err instanceof Error ? err.message : String(err) }, 404)
+    }
+  })
+
+  app.post('/webhooks/:id/disable', async (c) => {
+    if (!webhooks) return c.json({ error: 'webhooks store not initialized' }, 500)
+    try {
+      return c.json(await webhooks.setEnabled(c.req.param('id'), false))
+    } catch (err) {
+      return c.json({ error: err instanceof Error ? err.message : String(err) }, 404)
+    }
+  })
+
+  app.delete('/webhooks/:id', async (c) => {
+    if (!webhooks) return c.json({ error: 'webhooks store not initialized' }, 500)
+    const ok = await webhooks.remove(c.req.param('id'))
+    if (!ok) return c.json({ error: 'Not found' }, 404)
+    return c.json({ ok: true })
+  })
+
+  app.post('/webhooks/:id/test', async (c) => {
+    if (!webhooks) return c.json({ error: 'webhooks store not initialized' }, 500)
+    const hook = webhooks.get(c.req.param('id'))
+    if (!hook) return c.json({ error: 'Not found' }, 404)
+    const body = (await c.req.json().catch(() => ({}))) as { event?: WebhookEvent }
+    const event = (body.event && WEBHOOK_EVENTS.includes(body.event) ? body.event : 'diagnose_failed') as WebhookEvent
+    const result = await sendWebhookWithRetry(hook, {
+      event,
+      title: 'kiro-acc webhook test',
+      text: `Test notification from kiro-acc admin (${event})`,
+      ts: Date.now(),
+      data: { test: true },
+    })
+    await webhooks.recordDelivery(hook.id, result.ok, result.error)
+    return c.json(result, result.ok ? 200 : 502)
+  })
+
+  app.patch('/webhooks-settings', async (c) => {
+    if (!webhooks) return c.json({ error: 'webhooks store not initialized' }, 500)
+    const body = (await c.req.json().catch(() => ({}))) as { exitFailThreshold?: number }
+    if (body.exitFailThreshold != null) {
+      await webhooks.setExitFailThreshold(Number(body.exitFailThreshold))
+    }
+    return c.json({ exitFailThreshold: webhooks.getExitFailThreshold() })
+  })
+
+  // --- Diagnose ---
+
+  app.post('/diagnose', async (c) => {
+    try {
+      const body = (await c.req.json().catch(() => ({}))) as {
+        accountId?: string
+        doRefresh?: boolean
+        doTls?: boolean
+        compareDirect?: boolean
+      }
+      const accountId = body.accountId?.trim()
+      if (!accountId) return c.json({ error: 'accountId is required' }, 400)
+      const refreshBefore =
+        store.getPersistedConfig().tokenRefreshBeforeExpirySec ?? config.tokenRefreshBeforeExpirySec
+      const report = await diagnoseAccount(accountId, {
+        accounts: store,
+        exits: exitsStore,
+        doRefresh: body.doRefresh !== false,
+        doTls: body.doTls !== false,
+        compareDirect: body.compareDirect !== false,
+        refreshBeforeSec: refreshBefore,
+      })
+      if (!report.ok) {
+        void signalDiagnoseFailed(accountId, report.token.refreshError || report.exit.error || report.tlsError || 'diagnose failed')
+        if (report.exit.exitId && exitsStore && !report.exit.ok) {
+          try {
+            await exitsStore.recordExitFailure(report.exit.exitId)
+          } catch {
+            /* ignore */
+          }
+        }
+      } else if (report.exit.exitId && exitsStore) {
+        try {
+          await exitsStore.resetExitFailures(report.exit.exitId)
+        } catch {
+          /* ignore */
+        }
+      }
+      return c.json(report, report.ok ? 200 : 200)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      return c.json({ error: msg }, 400)
+    }
   })
 
   return app

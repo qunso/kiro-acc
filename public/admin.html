@@ -120,9 +120,12 @@ pre.docs{background:#0d1218;border:1px solid var(--line);border-radius:10px;padd
     <button data-tab="exits">出口</button>
     <button data-tab="import">导入</button>
     <button data-tab="api">API 反代</button>
+    <button data-tab="subs">订阅用量</button>
+    <button data-tab="webhooks">Webhook</button>
+    <button data-tab="diagnose">诊断</button>
     <button data-tab="probe">TLS 探测</button>
   </nav>
-  <div class="aside-foot muted">无头服务管理台 · P0：账户 + API 反代</div>
+  <div class="aside-foot muted">无头服务管理台 · P0/P1：账户 · API · 订阅 · Webhook · 诊断</div>
 </aside>
 <div class="content">
 <header>
@@ -308,6 +311,84 @@ pre.docs{background:#0d1218;border:1px solid var(--line);border-radius:10px;padd
     </div>
   </section>
 
+  
+  <section id="tab-subs" hidden>
+    <div class="card stats" id="subStats"></div>
+    <div class="card">
+      <p class="muted">订阅类型由 provider/authMethod 推导；配额与用量来自本地池计量。可单账号刷新 Token/用量。不含批量订阅升级。</p>
+      <div class="row" style="margin-bottom:10px">
+        <input id="subFilter" placeholder="过滤账号 / 类型" style="width:240px"/>
+        <select id="subFocus">
+          <option value="">全部</option>
+          <option value="near">接近限额</option>
+          <option value="exhausted">已耗尽</option>
+          <option value="disabled">已禁用</option>
+          <option value="suspended">已封禁</option>
+          <option value="expiring">Token 将过期</option>
+        </select>
+        <button id="reloadSubs">刷新列表</button>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>账号</th><th>类型</th><th>Token 过期</th><th>配额</th><th>用量</th><th>状态</th><th>操作</th>
+            </tr>
+          </thead>
+          <tbody id="subBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section id="tab-webhooks" hidden>
+    <div class="card">
+      <h2>新建 Webhook</h2>
+      <p class="muted">支持 DingTalk / Telegram / Discord / Slack / generic JSON。事件：封禁、全配额耗尽、刷新失败、出口连续失败、诊断失败。</p>
+      <div class="row" style="margin-bottom:8px">
+        <input id="whLabel" placeholder="标签" style="width:140px"/>
+        <select id="whChannel">
+          <option value="generic">generic</option>
+          <option value="dingtalk">dingtalk</option>
+          <option value="telegram">telegram</option>
+          <option value="discord">discord</option>
+          <option value="slack">slack</option>
+        </select>
+        <input id="whUrl" placeholder="Webhook URL / Telegram bot base" style="flex:1;min-width:220px"/>
+      </div>
+      <div class="row" style="margin-bottom:8px">
+        <input id="whSecret" placeholder="DingTalk secret（可选）" style="width:200px"/>
+        <input id="whChatId" placeholder="Telegram chat_id" style="width:160px"/>
+        <input id="whRetries" type="number" min="1" max="5" value="3" title="maxRetries" style="width:80px"/>
+        <button class="primary" id="createWebhook">创建</button>
+      </div>
+      <div class="row" id="whEvents" style="margin-bottom:8px;gap:10px;flex-wrap:wrap"></div>
+      <div class="row">
+        <label class="muted">出口连续失败阈值</label>
+        <input id="whFailThreshold" type="number" min="1" max="20" value="3" style="width:80px"/>
+        <button id="saveWhSettings">保存阈值</button>
+      </div>
+    </div>
+    <div id="webhookList" class="muted">加载中…</div>
+  </section>
+
+  <section id="tab-diagnose" hidden>
+    <div class="card">
+      <h2>账号诊断</h2>
+      <p class="muted">检查 Token/刷新、粘性出口可达性，以及 TLS/JA4 粘性 vs 直连（只读观测）。完整单项探测也可在「TLS 探测」页进行。不伪造指纹 / 无 MITM / 无 machine-id。</p>
+      <div class="row" style="margin-bottom:10px">
+        <select id="diagAccount" style="min-width:240px"><option value="">选择账号</option></select>
+        <label class="row"><input type="checkbox" id="diagRefresh" checked/> 必要时刷新 Token</label>
+        <label class="row"><input type="checkbox" id="diagTls" checked/> TLS/JA4 对比</label>
+        <label class="row"><input type="checkbox" id="diagDirect" checked/> 对比直连</label>
+        <button class="primary" id="runDiagnose">开始诊断</button>
+        <button id="copyDiagReport">复制报告</button>
+      </div>
+      <div id="diagSummary" class="row" style="margin-bottom:10px"></div>
+      <pre class="docs" id="diagReport" style="min-height:220px">选择账号后开始诊断…</pre>
+    </div>
+  </section>
+
   <section id="tab-probe" hidden>
     <div class="card">
       <h2>TLS 指纹探测（只读）</h2>
@@ -329,11 +410,12 @@ const $ = (id) => document.getElementById(id);
 const tokenKey = 'kiro-acc-admin-token';
 const titles = {
   accounts: '账户管理', pools: '代理池', exits: '出口', import: '导入',
-  api: 'API 反代', probe: 'TLS 探测'
+  api: 'API 反代', subs: '订阅用量', webhooks: 'Webhook', diagnose: '诊断', probe: 'TLS 探测'
 };
 const state = {
   exits: [], pools: [], accounts: [], groups: [], tags: [], checked: new Set(),
   selected: new Set(), usage: null, apiMeta: null, apiKeys: [], modelMap: {},
+  subs: null, webhooks: [], whEvents: [], exitFailThreshold: 3, lastDiagText: '',
 };
 $('token').value = localStorage.getItem(tokenKey) || '';
 
@@ -682,7 +764,7 @@ async function reloadRequestLog() {
 
 function showTab(name) {
   document.querySelectorAll('#nav button').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
-  ['accounts','pools','exits','import','api','probe'].forEach(t => {
+  ['accounts','pools','exits','import','api','subs','webhooks','diagnose','probe'].forEach(t => {
     const el = $('tab-'+t); if (el) el.hidden = t !== name;
   });
   $('pageTitle').textContent = titles[name] || name;
@@ -691,7 +773,11 @@ function showTab(name) {
   if (asideEl) asideEl.classList.remove('nav-open');
   if (burgerEl) burgerEl.setAttribute('aria-expanded', 'false');
   if (name === 'api') { renderApiPanel(); reloadRequestLog(); }
+  if (name === 'subs') renderSubs();
+  if (name === 'webhooks') renderWebhooks();
+  if (name === 'diagnose') fillDiagAccounts();
 }
+
 function obsCard(title, obs) {
   if (!obs) return '';
   if (!obs.ok) return '<div class="card"><h2>'+esc(title)+'</h2><p class="badge bad">失败</p><p>'+esc(obs.error||'')+'</p></div>';
@@ -702,6 +788,129 @@ function obsCard(title, obs) {
     row('ALPN', alpn)+ row('HTTP', obs.httpVersion)+ row('出口 IP', obs.egressIp)+ row('egress', obs.egress)+
     '</dl></div>';
 }
+
+
+const WH_EVENT_LABELS = {
+  account_suspended: '账号封禁',
+  all_quota_exhausted: '全配额耗尽',
+  refresh_failed: '刷新失败',
+  exit_consecutive_failures: '出口连续失败',
+  diagnose_failed: '诊断失败',
+};
+
+function renderSubs() {
+  const data = state.subs;
+  if (!data) { $('subStats').innerHTML = '<div class="muted">加载中…</div>'; return; }
+  $('subStats').innerHTML =
+    '<div class="stat"><span class="muted">账号</span><b>'+data.total+'</b></div>'+
+    '<div class="stat"><span class="muted">启用</span><b>'+data.enabled+'</b></div>'+
+    '<div class="stat"><span class="muted">禁用</span><b>'+data.disabled+'</b></div>'+
+    '<div class="stat"><span class="muted">接近限额</span><b>'+data.nearLimit+'</b></div>'+
+    '<div class="stat"><span class="muted">已耗尽</span><b>'+data.exhausted+'</b></div>'+
+    '<div class="stat"><span class="muted">封禁</span><b>'+data.suspended+'</b></div>';
+  const q = ($('subFilter').value || '').toLowerCase();
+  const focus = $('subFocus').value;
+  let rows = (data.rows || []).slice();
+  if (focus === 'near') rows = rows.filter(r => r.nearLimit);
+  if (focus === 'exhausted') rows = rows.filter(r => r.quotaExhausted);
+  if (focus === 'disabled') rows = rows.filter(r => !r.enabled);
+  if (focus === 'suspended') rows = rows.filter(r => r.suspended);
+  if (focus === 'expiring') rows = rows.filter(r => r.tokenExpiringSoon || r.tokenExpired);
+  if (q) rows = rows.filter(r => JSON.stringify(r).toLowerCase().includes(q));
+  $('subBody').innerHTML = rows.map(r => {
+    const exp = r.tokenExpiresAt ? new Date(r.tokenExpiresAt).toLocaleString() : '—';
+    const quota = r.quotaLimit > 0
+      ? (r.quotaUsed + ' / ' + r.quotaLimit + (r.quotaRatio != null ? ' ('+Math.round(r.quotaRatio*100)+'%)' : ''))
+      : (r.quotaUsed + ' / —');
+    const bits = [];
+    if (!r.enabled) bits.push('<span class="badge bad">禁用</span>');
+    else bits.push('<span class="badge ok">启用</span>');
+    if (r.suspended) bits.push('<span class="badge warn">suspended</span>');
+    if (r.quotaExhausted) bits.push('<span class="badge bad">exhausted</span>');
+    else if (r.nearLimit) bits.push('<span class="badge warn">near limit</span>');
+    if (r.tokenExpired) bits.push('<span class="badge bad">token expired</span>');
+    else if (r.tokenExpiringSoon) bits.push('<span class="badge warn">token soon</span>');
+    const pu = r.persistedUsage;
+    const usage = pu
+      ? (pu.requests+' 次 · '+(pu.inputTokens+pu.outputTokens)+' tok')
+      : (r.usageRequests+' 次 · '+r.usageTokens+' tok');
+    return '<tr>'+
+      '<td><b>'+esc(r.label)+'</b><div class="muted mono">'+esc(r.email||r.id)+'</div></td>'+
+      '<td>'+esc(r.subscriptionType)+'</td>'+
+      '<td class="muted">'+esc(exp)+'</td>'+
+      '<td class="mono">'+esc(quota)+'</td>'+
+      '<td class="mono">'+esc(usage)+'</td>'+
+      '<td>'+bits.join(' ')+'</td>'+
+      '<td><button data-refresh-sub="'+esc(r.id)+'">刷新订阅/用量</button></td>'+
+      '</tr>';
+  }).join('') || '<tr><td colspan="7" class="muted">无匹配账号</td></tr>';
+}
+
+function selectedWhEvents() {
+  return [...document.querySelectorAll('#whEvents input[type=checkbox]:checked')].map(el => el.value);
+}
+function renderWhEventChecks(selected) {
+  const events = state.whEvents.length ? state.whEvents : Object.keys(WH_EVENT_LABELS);
+  const sel = new Set(selected && selected.length ? selected : events);
+  $('whEvents').innerHTML = events.map(e =>
+    '<label class="row"><input type="checkbox" value="'+esc(e)+'"'+(sel.has(e)?' checked':'')+'/> '+esc(WH_EVENT_LABELS[e]||e)+'</label>'
+  ).join('');
+}
+function renderWebhooks() {
+  $('whFailThreshold').value = state.exitFailThreshold || 3;
+  renderWhEventChecks(state.whEvents);
+  const list = state.webhooks || [];
+  if (!list.length) {
+    $('webhookList').innerHTML = '<div class="card"><span class="muted">暂无 Webhook。上方创建一条后可点测试发送。</span></div>';
+    return;
+  }
+  $('webhookList').innerHTML = list.map(w => {
+    const ev = (w.events||[]).map(e => '<span class="badge">'+esc(WH_EVENT_LABELS[e]||e)+'</span>').join(' ');
+    return '<div class="card">'+
+      '<div class="row" style="justify-content:space-between">'+
+      '<div><b>'+esc(w.label)+'</b> <span class="badge">'+esc(w.channel)+'</span> '+
+      (w.enabled?'<span class="badge ok">启用</span>':'<span class="badge bad">停用</span>')+
+      '<div class="mono muted">'+esc(w.url)+'</div>'+
+      '<div style="margin-top:6px">'+ev+'</div>'+
+      (w.lastError ? '<div class="muted" style="color:var(--bad)">last error: '+esc(w.lastError)+'</div>' : '')+
+      '</div>'+
+      actionMenu([
+        {label:'测试发送', attrs:'data-wh-test="'+esc(w.id)+'"'},
+        w.enabled
+          ? {label:'停用', attrs:'data-wh-dis="'+esc(w.id)+'"'}
+          : {label:'启用', attrs:'data-wh-en="'+esc(w.id)+'"'},
+        {label:'删除', attrs:'data-wh-del="'+esc(w.id)+'"', danger:true},
+      ])+
+      '</div></div>';
+  }).join('');
+  bindMenuPositioning(document);
+}
+
+function fillDiagAccounts() {
+  const sel = $('diagAccount');
+  const prev = sel.value;
+  sel.innerHTML = '<option value="">选择账号</option>'+state.accounts.map(a =>
+    '<option value="'+esc(a.id)+'">'+esc(a.label||a.email||a.id)+'</option>'
+  ).join('');
+  if (prev) sel.value = prev;
+}
+
+async function loadSubs() {
+  try {
+    state.subs = await api('/subscriptions');
+    renderSubs();
+  } catch (e) { toast('订阅: '+e.message, true); }
+}
+async function loadWebhooks() {
+  try {
+    const r = await api('/webhooks');
+    state.webhooks = r.webhooks || [];
+    state.whEvents = r.events || [];
+    state.exitFailThreshold = r.exitFailThreshold || 3;
+    renderWebhooks();
+  } catch (e) { $('webhookList').textContent = e.message; }
+}
+
 
 async function refresh() {
   try {
@@ -741,6 +950,9 @@ async function refresh() {
   renderPools();
   renderAccounts();
   renderApiPanel();
+  await loadSubs();
+  await loadWebhooks();
+  fillDiagAccounts();
 }
 
 $('saveToken').onclick = () => { localStorage.setItem(tokenKey, $('token').value.trim()); toast('Token 已保存'); refresh(); };
@@ -902,6 +1114,25 @@ document.body.addEventListener('click', async (ev) => {
       if (!confirm('删除该 API Key 记录？')) return;
       await api('/api-keys/' + encodeURIComponent(t.dataset.delKey), { method: 'DELETE' });
       toast('已删除'); refresh();
+
+    } else if (t.dataset.refreshSub) {
+      await api('/accounts/' + encodeURIComponent(t.dataset.refreshSub) + '/refresh-subscription', { method: 'POST' });
+      toast('订阅/用量已刷新'); loadSubs(); refresh();
+    } else if (t.dataset.whTest) {
+      const r = await api('/webhooks/' + encodeURIComponent(t.dataset.whTest) + '/test', { method: 'POST', body: '{}' });
+      toast(r.ok ? '测试发送成功' : ('测试失败: '+(r.error||'')), !r.ok); loadWebhooks();
+    } else if (t.dataset.whEn) {
+      await api('/webhooks/' + encodeURIComponent(t.dataset.whEn) + '/enable', { method: 'POST' });
+      toast('已启用'); loadWebhooks();
+    } else if (t.dataset.whDis) {
+      await api('/webhooks/' + encodeURIComponent(t.dataset.whDis) + '/disable', { method: 'POST' });
+      toast('已停用'); loadWebhooks();
+    } else if (t.dataset.whDel) {
+      if (!confirm('删除 Webhook ' + t.dataset.whDel + ' ?')) return;
+      await api('/webhooks/' + encodeURIComponent(t.dataset.whDel), { method: 'DELETE' });
+      toast('已删除'); loadWebhooks();
+    } else if (t.dataset.tabJump) {
+      showTab(t.dataset.tabJump);
     } else if (t.dataset.delMap) {
       await api('/model-map/' + encodeURIComponent(t.dataset.delMap), { method: 'DELETE' });
       toast('映射已删除'); refresh();
@@ -1010,6 +1241,65 @@ $('clearLog').onclick = async () => {
   if (!confirm('清空内存请求日志？')) return;
   try { await api('/request-log', { method: 'DELETE' }); toast('已清空'); reloadRequestLog(); }
   catch (e) { toast(e.message, true); }
+};
+
+
+$('subFilter').oninput = () => renderSubs();
+$('subFocus').onchange = () => renderSubs();
+$('reloadSubs').onclick = () => loadSubs();
+$('createWebhook').onclick = async () => {
+  try {
+    await api('/webhooks', { method: 'POST', body: JSON.stringify({
+      label: $('whLabel').value.trim(),
+      channel: $('whChannel').value,
+      url: $('whUrl').value.trim(),
+      secret: $('whSecret').value.trim() || undefined,
+      telegramChatId: $('whChatId').value.trim() || undefined,
+      maxRetries: Number($('whRetries').value) || 3,
+      events: selectedWhEvents(),
+    }) });
+    toast('Webhook 已创建');
+    $('whUrl').value = '';
+    loadWebhooks();
+  } catch (e) { toast(e.message, true); }
+};
+$('saveWhSettings').onclick = async () => {
+  try {
+    await api('/webhooks-settings', { method: 'PATCH', body: JSON.stringify({
+      exitFailThreshold: Number($('whFailThreshold').value) || 3,
+    }) });
+    toast('阈值已保存'); loadWebhooks();
+  } catch (e) { toast(e.message, true); }
+};
+$('runDiagnose').onclick = async () => {
+  const accountId = $('diagAccount').value;
+  if (!accountId) { toast('先选择账号', true); return; }
+  $('diagReport').textContent = '诊断中…';
+  $('diagSummary').innerHTML = '';
+  try {
+    const r = await api('/diagnose', { method: 'POST', body: JSON.stringify({
+      accountId,
+      doRefresh: $('diagRefresh').checked,
+      doTls: $('diagTls').checked,
+      compareDirect: $('diagDirect').checked,
+    }) });
+    state.lastDiagText = r.text || JSON.stringify(r, null, 2);
+    $('diagReport').textContent = state.lastDiagText;
+    $('diagSummary').innerHTML =
+      (r.ok ? '<span class="badge ok">OK</span>' : '<span class="badge bad">FAILED</span>')+
+      ' <span class="muted">token: '+esc(r.token && r.token.message)+' · exit: '+esc(r.exit && r.exit.message)+'</span>'+
+      ' <button type="button" class="ghost" data-tab-jump="probe">打开 TLS 探测</button>';
+  } catch (e) {
+    state.lastDiagText = e.message;
+    $('diagReport').textContent = e.message;
+    toast(e.message, true);
+  }
+};
+$('copyDiagReport').onclick = async () => {
+  try {
+    await navigator.clipboard.writeText(state.lastDiagText || $('diagReport').textContent || '');
+    toast('报告已复制');
+  } catch (e) { toast(e.message, true); }
 };
 
 refresh();
