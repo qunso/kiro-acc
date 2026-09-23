@@ -7,6 +7,7 @@ import tls, { type ConnectionOptions } from 'node:tls'
 import { Agent, type Dispatcher } from 'undici'
 import { openSsTunnel } from './tunnel.js'
 import { parseSsUrl, type SsEndpoint } from './url.js'
+import { TlsSessionCache } from './tlsSessionCache.js'
 
 /**
  * ALPN list undici's built-in connector would pass to `tls.connect`.
@@ -25,8 +26,14 @@ export function alpnProtocolsForUndiciConnect(opts: {
   return opts.allowH2 ? ['http/1.1', 'h2'] : ['http/1.1']
 }
 
+export { TlsSessionCache } from './tlsSessionCache.js'
+
 export function createSsDispatcher(ssUrl: string): Dispatcher {
   const endpoint: SsEndpoint = parseSsUrl(ssUrl)
+  // Per-dispatcher cache: sticky SS HTTPS warm connects can reuse tickets /
+  // PSKs (ClientHello extension 0x0029) like direct undici. Performance /
+  // undici-parity session reuse, not fingerprint mimicry.
+  const sessionCache = new TlsSessionCache(64)
 
   return new Agent({
     connect: (opts, callback) => {
@@ -47,13 +54,29 @@ export function createSsDispatcher(ssUrl: string): Dispatcher {
               ALPNProtocols?: ConnectionOptions['ALPNProtocols']
               allowH2?: boolean
             }
+            const servername = opts.servername || targetHost
+            const cachedSession = sessionCache.get(servername, targetPort)
             const socket = tls.connect({
               socket: tunnel as never,
-              servername: opts.servername || targetHost,
+              servername,
               ALPNProtocols: alpnProtocolsForUndiciConnect(connectOpts),
+              ...(cachedSession ? { session: cachedSession } : {}),
             })
-            await once(socket, 'secureConnect')
-            callback(null, socket)
+
+            const cacheSession = (session: Buffer) => {
+              sessionCache.set(servername, targetPort, session)
+            }
+            socket.on('session', cacheSession)
+
+            try {
+              await once(socket, 'secureConnect')
+              const fromSocket = socket.getSession()
+              if (fromSocket) cacheSession(fromSocket)
+              callback(null, socket)
+            } catch (err) {
+              sessionCache.invalidate(servername, targetPort)
+              throw err
+            }
             return
           }
 
