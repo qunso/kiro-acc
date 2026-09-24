@@ -346,14 +346,18 @@ export async function callKiroApiStream(
 
       const requested =
         requestPayload.conversationState.currentMessage.userInputMessage.modelId || ''
+      const sentModelId =
+        endpoint.name === 'CodeWhisperer' ? toCodeWhispererModelId(requested) : requested
       if (endpoint.name === 'CodeWhisperer') {
-        applyModelId(requestPayload, toCodeWhispererModelId(requested))
+        applyModelId(requestPayload, sentModelId)
       }
 
       const body = JSON.stringify(requestPayload)
       const headers = authHeaders(account)
 
-      console.log(`[KiroAPI] POST ${endpoint.name} account=${account.label || account.id}`)
+      console.log(
+        `[KiroAPI] POST ${endpoint.name} account=${account.label || account.id} model=${sentModelId}`,
+      )
 
       const res = await doFetch(
         endpoint.url,
@@ -382,7 +386,12 @@ export async function callKiroApiStream(
         throw new KiroApiError('Empty response body from Kiro', 502)
       }
 
-      await parseEventStream(res.body, onChunk, onComplete, options.signal)
+      await parseEventStream(
+        res.body,
+        onChunk,
+        (u) => onComplete({ ...u, modelId: sentModelId }),
+        options.signal,
+      )
       return
     } catch (err) {
       if (options.signal?.aborted) throw err

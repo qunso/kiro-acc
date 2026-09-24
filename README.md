@@ -212,6 +212,28 @@ Claude Code 可将 `ANTHROPIC_BASE_URL` 指到 `http://127.0.0.1:8787`，`ANTHRO
 
 ---
 
+## 支持的模型（`/v1/models`）
+
+Kiro 上游友好 id（点分版本）与 dash 别名均可；`data/model-map.json` / `/admin/model-map` 可覆盖。
+
+| 模型 id | 说明 | 来源 |
+|---------|------|------|
+| `claude-opus-5` | Claude Opus 5 | [kiro.dev](https://kiro.dev/docs/models/available-models/)（2026-07-24） |
+| `claude-sonnet-5` | Claude Sonnet 5 | kiro.dev |
+| `claude-opus-4.8` / `4.7` / `4.6` / `4.5` | Claude Opus 4.x | kiro.dev |
+| `claude-sonnet-4.6` / `4.5` / `4` | Claude Sonnet 4.x | kiro.dev |
+| `claude-haiku-4.5` | Claude Haiku 4.5 | kiro.dev |
+| `gpt-5.6-sol` / `terra` / `luna` | GPT 5.6 三档 | kiro.dev（Experimental） |
+| `deepseek-3.2` / `minimax-m2.5` / `m2.1` / `glm-5` / `qwen3-coder-next` | 开源权重模型 | kiro.dev |
+| `auto` | Kiro 路由 | kiro.dev |
+| `gpt-4o` 等 | 兼容别名 → 默认 Sonnet 4.5 | 本仓库 |
+
+**CodeWhisperer 路径**：已知的旧版 SCREAMING_SNAKE（Sonnet/Haiku/Opus 4.5、Sonnet 4）仍会转换；其余 Kiro 友好 id（含 `claude-opus-5`）原样透传，**不会**再默默落到 Sonnet 4。Amazon Q 路径始终使用友好 id。
+
+动态拉取 `ListAvailableModels` 列为后续改进，当前为静态目录。
+
+---
+
 ## Admin API 摘要
 
 均需 `x-admin-token` 或 `Authorization: Bearer <ADMIN_TOKEN>`。

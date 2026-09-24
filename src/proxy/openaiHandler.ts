@@ -16,6 +16,7 @@ import {
 import {
   createOpenaiStreamChunk,
   kiroToOpenaiResponse,
+  mapModelId,
   openaiToKiro,
   PUBLIC_MODELS,
   type OpenAIChatRequest,
@@ -172,7 +173,7 @@ export function chatCompletionsHandler(
         await recordProxyUsage(store, {
           timestamp: Date.now(),
           accountId: account.id,
-          model: body.model,
+          model: result.usage.modelId || mapModelId(body.model),
           inputTokens: result.usage.inputTokens,
           outputTokens: result.usage.outputTokens,
           success: true,
@@ -199,7 +200,7 @@ export function chatCompletionsHandler(
         await recordProxyUsage(store, {
           timestamp: Date.now(),
           accountId: account.id,
-          model: body.model,
+          model: mapModelId(body.model),
           inputTokens: 0,
           outputTokens: 0,
           success: false,
@@ -330,7 +331,7 @@ async function handleStream(
         await recordProxyUsage(store, {
           timestamp: Date.now(),
           accountId,
-          model: body.model,
+          model: usage.modelId || mapModelId(body.model),
           inputTokens: usage.inputTokens,
           outputTokens: usage.outputTokens,
           success: true,
@@ -355,7 +356,7 @@ async function handleStream(
         await recordProxyUsage(store, {
           timestamp: Date.now(),
           accountId,
-          model: body.model,
+          model: usage.modelId || mapModelId(body.model),
           inputTokens: 0,
           outputTokens: 0,
           success: false,
