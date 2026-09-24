@@ -1,12 +1,19 @@
 /**
  * Kiro / CodeWhisperer / Amazon Q API client + AWS Event Stream parser.
  * Endpoint & framing patterns adapted from chaogei/Kiro-account-manager (AGPL-3.0).
- * Intentionally omits machine-ID spoofing and MITM proxy features.
+ * Sends each account's stored Machine ID (机器码) in the KiroIDE User-Agent
+ * suffix — matching original account managers. Does NOT do JA4/MITM / OS
+ * MachineGuid forging or per-request rotation.
  */
 import { randomUUID } from 'node:crypto'
 import { fetch as undiciFetch, type RequestInit as UndiciRequestInit } from 'undici'
 import { getDispatcherForAccount } from '../net/outboundDispatcher.js'
 import type { AccountRecord } from '../accounts/types.js'
+import {
+  buildKiroAmzUserAgent,
+  buildKiroUserAgent,
+  resolveMachineIdForRequest,
+} from '../accounts/machineId.js'
 import { resolveProfileArn } from './auth.js'
 import {
   toCodeWhispererModelId,
@@ -14,8 +21,8 @@ import {
   type KiroToolUse,
   type KiroUsage,
 } from './translator.js'
+import { getKiroIdeVersion } from './ideVersion.js'
 
-const KIRO_VERSION = '0.12.155'
 const AWS_SDK_VERSION = '1.0.34'
 
 interface Endpoint {
@@ -49,22 +56,21 @@ export class KiroApiError extends Error {
   }
 }
 
-function getUserAgent(): string {
-  const platform =
-    process.platform === 'win32' ? 'win32' : process.platform === 'darwin' ? 'macos' : 'linux'
-  return `aws-sdk-js/${AWS_SDK_VERSION} ua/2.1 os/${platform}#${process.version} lang/js md/nodejs#${process.versions.node} api/codewhispererstreaming#${AWS_SDK_VERSION} m/E KiroIDE-${KIRO_VERSION}`
-}
-
-function getAmzUserAgent(): string {
-  return `aws-sdk-js/${AWS_SDK_VERSION} KiroIDE-${KIRO_VERSION}`
-}
-
 function authHeaders(account: AccountRecord): Record<string, string> {
+  const machineId = resolveMachineIdForRequest(account)
   const headers: Record<string, string> = {
     'content-type': 'application/json',
     'x-amzn-kiro-agent-mode': 'vibe',
-    'x-amz-user-agent': getAmzUserAgent(),
-    'user-agent': getUserAgent(),
+    'x-amz-user-agent': buildKiroAmzUserAgent({
+      kiroVersion: getKiroIdeVersion(),
+      awsSdkVersion: AWS_SDK_VERSION,
+      machineId,
+    }),
+    'user-agent': buildKiroUserAgent({
+      kiroVersion: getKiroIdeVersion(),
+      awsSdkVersion: AWS_SDK_VERSION,
+      machineId,
+    }),
     'amz-sdk-invocation-id': randomUUID(),
     'amz-sdk-request': 'attempt=1; max=3',
     Authorization: `Bearer ${account.accessToken}`,

@@ -104,13 +104,14 @@ describe('usageByApiKey aggregation', () => {
   })
 })
 
-describe('deviceId import (display-only)', () => {
-  it('picks deviceId / machineId from import JSON without inventing values', () => {
+describe('machineId / 机器码 import', () => {
+  it('maps machineId / deviceId / machineCode aliases without inventing values', () => {
     const withDevice = normalizeAccountImport({
       email: 'd@example.com',
       refreshToken: 'rt',
       deviceId: 'dev-abc-123',
     })
+    expect(withDevice.accounts[0]?.machineId).toBe('dev-abc-123')
     expect(withDevice.accounts[0]?.deviceId).toBe('dev-abc-123')
 
     const withMachine = normalizeAccountImport({
@@ -118,12 +119,20 @@ describe('deviceId import (display-only)', () => {
       refreshToken: 'rt2',
       machineId: 'machine-xyz',
     })
-    expect(withMachine.accounts[0]?.deviceId).toBe('machine-xyz')
+    expect(withMachine.accounts[0]?.machineId).toBe('machine-xyz')
+
+    const withCode = normalizeAccountImport({
+      email: 'c@example.com',
+      refreshToken: 'rt4',
+      machineCode: 'code-from-export',
+    })
+    expect(withCode.accounts[0]?.machineId).toBe('code-from-export')
 
     const bare = normalizeAccountImport({
       email: 'n@example.com',
       refreshToken: 'rt3',
     })
+    expect(bare.accounts[0]?.machineId).toBeUndefined()
     expect(bare.accounts[0]?.deviceId).toBeUndefined()
   })
 })

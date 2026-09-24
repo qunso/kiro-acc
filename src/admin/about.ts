@@ -2,6 +2,7 @@ import { execSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { getKiroIdeVersionMeta } from '../kiro/ideVersion.js'
 
 const here = dirname(fileURLToPath(import.meta.url))
 
@@ -37,6 +38,7 @@ export function tryGitCommit(): string | null {
 }
 
 export function aboutInfo() {
+  const ide = getKiroIdeVersionMeta()
   return {
     name: 'kiro-acc',
     version: readPackageVersion(),
@@ -44,5 +46,10 @@ export function aboutInfo() {
     node: process.version,
     platform: process.platform,
     uptimeSec: Math.floor(process.uptime()),
+    /** Version string used in upstream `KiroIDE-{ver}-…` User-Agent */
+    kiroIdeVersion: ide.version,
+    kiroIdeVersionSource: ide.source,
+    kiroIdeVersionFetchedAt: ide.fetchedAt,
+    kiroIdeVersionOverride: ide.override,
   }
 }

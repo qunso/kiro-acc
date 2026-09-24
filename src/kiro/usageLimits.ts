@@ -1,15 +1,20 @@
 /**
  * Fetch Kiro / Amazon Q credit usage limits (GetUsageLimits REST).
  * Endpoint & response mapping adapted from chaogei/Kiro-account-manager (AGPL-3.0).
- * Intentionally omits machine-ID spoofing.
+ * Includes per-account Machine ID in User-Agent (stable; no JA4/MITM).
  */
 import { randomUUID } from 'node:crypto'
 import { fetch as undiciFetch, type RequestInit as UndiciRequestInit } from 'undici'
 import type { AccountQuotaDetail, AccountRecord } from '../accounts/types.js'
+import {
+  buildKiroAmzUserAgent,
+  buildKiroUserAgent,
+  resolveMachineIdForRequest,
+} from '../accounts/machineId.js'
 import { getDispatcherForAccount } from '../net/outboundDispatcher.js'
 import { isPlaceholderProfileArn, resolveProfileArn } from './auth.js'
+import { getKiroIdeVersion } from './ideVersion.js'
 
-const KIRO_VERSION = '0.12.155'
 const AWS_SDK_VERSION = '1.0.34'
 
 const REST_BASES: Record<string, string> = {
@@ -94,16 +99,6 @@ export class UsageLimitsError extends Error {
   }
 }
 
-function getUserAgent(): string {
-  const platform =
-    process.platform === 'win32' ? 'win32' : process.platform === 'darwin' ? 'macos' : 'linux'
-  return `aws-sdk-js/${AWS_SDK_VERSION} ua/2.1 os/${platform}#${process.version} lang/js md/nodejs#${process.versions.node} api/codewhispererstreaming#${AWS_SDK_VERSION} m/E KiroIDE-${KIRO_VERSION}`
-}
-
-function getAmzUserAgent(): string {
-  return `aws-sdk-js/${AWS_SDK_VERSION} KiroIDE-${KIRO_VERSION}`
-}
-
 function restBaseForRegion(region?: string): string {
   if (!region) return REST_BASES['us-east-1']!
   if (REST_BASES[region]) return REST_BASES[region]!
@@ -128,11 +123,20 @@ export function profileArnForUsageLimits(account: AccountRecord): string | undef
 }
 
 function authHeaders(account: AccountRecord): Record<string, string> {
+  const machineId = resolveMachineIdForRequest(account)
   const headers: Record<string, string> = {
     Accept: 'application/json',
     Authorization: `Bearer ${account.accessToken}`,
-    'user-agent': getUserAgent(),
-    'x-amz-user-agent': getAmzUserAgent(),
+    'user-agent': buildKiroUserAgent({
+      kiroVersion: getKiroIdeVersion(),
+      awsSdkVersion: AWS_SDK_VERSION,
+      machineId,
+    }),
+    'x-amz-user-agent': buildKiroAmzUserAgent({
+      kiroVersion: getKiroIdeVersion(),
+      awsSdkVersion: AWS_SDK_VERSION,
+      machineId,
+    }),
     'amz-sdk-invocation-id': randomUUID(),
     'amz-sdk-request': 'attempt=1; max=3',
   }

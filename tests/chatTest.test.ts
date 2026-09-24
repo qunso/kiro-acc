@@ -134,6 +134,11 @@ describe('admin chat-test', () => {
     expect(oj.text).toBe('pong from mock')
     expect(oj.accountId).toBe(a.id)
     expect(oj.model).toBe('claude-haiku-4.5')
+    expect(oj.requestModel).toBe('claude-haiku-4.5')
+    expect(oj.mappedModel).toBe('claude-haiku-4.5')
+    expect(oj.upstreamModelId).toBeTruthy()
+    expect(oj.responseModelId).toBe('claude-haiku-4.5')
+    expect(oj.machineId).toBeTruthy()
     expect(typeof oj.latencyMs).toBe('number')
     expect(callKiroApi).toHaveBeenCalledTimes(1)
     const [accArg, payload] = vi.mocked(callKiroApi).mock.calls[0]!

@@ -11,6 +11,7 @@ import type {
 import { JsonStore } from '../storage/jsonStore.js'
 import { AccountPool } from '../pool/accountPool.js'
 import type { AppConfig } from '../config.js'
+import { generateMachineId, pickStoredMachineId } from './machineId.js'
 
 const emptyUsage = (): UsageStore => ({
   records: [],
@@ -54,9 +55,25 @@ export class AccountStore {
 
     this.accounts.clear()
     this.pool.clear()
+    let migratedMachineIds = 0
     for (const acc of accounts) {
-      this.accounts.set(acc.id, acc)
-      this.pool.addAccount(acc)
+      const next = { ...acc }
+      const existing = pickStoredMachineId(next)
+      if (!existing) {
+        next.machineId = generateMachineId()
+        migratedMachineIds++
+      } else if (!next.machineId) {
+        next.machineId = existing
+        migratedMachineIds++
+      }
+      // Mirror for older admin UI that reads deviceId
+      if (next.machineId && !next.deviceId) next.deviceId = next.machineId
+      this.accounts.set(next.id, next)
+      this.pool.addAccount(next)
+    }
+    if (migratedMachineIds > 0) {
+      await this.persist()
+      console.log(`[AccountStore] Assigned machineId on ${migratedMachineIds} account(s)`)
     }
     console.log(`[AccountStore] Loaded ${this.accounts.size} accounts from ${this.dataDir}`)
   }
@@ -150,12 +167,17 @@ export class AccountStore {
     if (!input.accessToken && !input.refreshToken) {
       throw new Error('accessToken or refreshToken is required')
     }
+    const machineId =
+      pickStoredMachineId({ machineId: input.machineId, deviceId: input.deviceId }) ||
+      generateMachineId()
     const record: AccountRecord = {
       ...input,
       id,
       accessToken: input.accessToken || '',
       label: input.label || input.email || id.slice(0, 8),
       enabled: input.enabled !== false,
+      machineId,
+      deviceId: input.deviceId || machineId,
       createdAt: now,
       updatedAt: now,
     }
@@ -193,7 +215,26 @@ export class AccountStore {
     return true
   }
 
-  async setEnabled(id: string, enabled: boolean): Promise<AccountRecord> {
+  /** Persist a machineId if missing (stable; never rotates an existing one). */
+  async ensureMachineId(id: string): Promise<string> {
+    const existing = this.accounts.get(id)
+    if (!existing) throw new Error(`Account not found: ${id}`)
+    const current = pickStoredMachineId(existing)
+    if (current) {
+      if (!existing.machineId || !existing.deviceId) {
+        await this.update(id, {
+          machineId: existing.machineId || current,
+          deviceId: existing.deviceId || current,
+        })
+      }
+      return current
+    }
+    const machineId = generateMachineId()
+    await this.update(id, { machineId, deviceId: machineId })
+    return machineId
+  }
+
+    async setEnabled(id: string, enabled: boolean): Promise<AccountRecord> {
     return this.update(id, { enabled })
   }
 
