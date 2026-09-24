@@ -9,7 +9,7 @@ import {
 } from '../kiro/auth.js'
 import { getUsageLimits, quotaDetailFromCredit, UsageLimitsError } from '../kiro/usageLimits.js'
 import { callKiroApi, KiroApiError } from '../kiro/client.js'
-import { mapModelId, openaiToKiro, PUBLIC_MODELS } from '../kiro/translator.js'
+import { mapModelId, toCodeWhispererModelId, openaiToKiro, PUBLIC_MODELS } from '../kiro/translator.js'
 import { adminAuth } from '../middleware/auth.js'
 import type { AppConfig } from '../config.js'
 import type { ExitsStore } from '../exits/store.js'
@@ -1460,6 +1460,16 @@ export function createAdminRoutes(
       )
     }
 
+    // Ensure stable Machine ID is persisted before upstream call
+    await store.ensureMachineId(account.id)
+    account = store.get(accountId)!
+
+    const requestModel = model
+    const mappedModel = mapModelId(model)
+    // CodeWhisperer may rewrite to SCREAMING_SNAKE; Amazon Q keeps mapped id.
+    const upstreamModelId =
+      preferred === 'amazonq' ? mappedModel : toCodeWhispererModelId(mappedModel)
+
     const profileArn = resolveProfileArn(account)
     const payload = openaiToKiro(
       {
@@ -1475,7 +1485,8 @@ export function createAdminRoutes(
         signal: c.req.raw.signal,
       })
       const latencyMs = Date.now() - started
-      const resolvedModel = result.usage.modelId || mapModelId(model)
+      const responseModelId = result.usage.modelId || undefined
+      const resolvedModel = responseModelId || mappedModel
       store.pool.recordSuccess(
         account.id,
         result.usage.inputTokens + result.usage.outputTokens,
@@ -1515,13 +1526,20 @@ export function createAdminRoutes(
       return c.json({
         ok: true,
         accountId: account.id,
+        /** @deprecated prefer requestModel / mappedModel / upstreamModelId / responseModelId */
         model: resolvedModel,
+        requestModel,
+        mappedModel,
+        upstreamModelId,
+        responseModelId: responseModelId || null,
+        machineId: account.machineId || account.deviceId || null,
         text: result.content || '',
         latencyMs,
         usage: {
           inputTokens: result.usage.inputTokens,
           outputTokens: result.usage.outputTokens,
           credits: result.usage.credits,
+          modelId: responseModelId || null,
         },
         quota: quotaSnap || null,
       })
@@ -1551,7 +1569,12 @@ export function createAdminRoutes(
         {
           ok: false,
           accountId: account.id,
-          model: mapModelId(model),
+          model: mappedModel,
+          requestModel,
+          mappedModel,
+          upstreamModelId,
+          responseModelId: null,
+          machineId: account.machineId || account.deviceId || null,
           text: '',
           latencyMs,
           error: msg,

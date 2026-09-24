@@ -30,7 +30,7 @@ const TOKEN_KEYS = {
   authMethod: ['authMethod', 'auth_method'],
   id: ['id'],
   expiresAt: ['expiresAt', 'expires_at', 'ExpiresAt'],
-  deviceId: ['deviceId', 'device_id', 'DeviceId', 'machineId', 'machine_id', 'MachineId', 'clientDeviceId', 'client_device_id'],
+  machineId: ['machineId', 'machine_id', 'MachineId', 'machineCode', 'machine_code', '机器码', 'deviceId', 'device_id', 'DeviceId', 'clientDeviceId', 'client_device_id'],
 } as const
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -170,7 +170,9 @@ function toCreateInput(raw: Record<string, unknown>, index: number): {
     outboundProxyUrl: asString(flat.outboundProxyUrl),
     outboundExitId: asString(flat.outboundExitId),
     outboundPoolId: asString(flat.outboundPoolId),
-    deviceId: asString(pick(flat, TOKEN_KEYS.deviceId)),
+    machineId: asString(pick(flat, TOKEN_KEYS.machineId)),
+    // Keep deviceId mirrored for older clients that only read that key.
+    deviceId: asString(pick(flat, TOKEN_KEYS.machineId)),
   }
   return { account: input }
 }

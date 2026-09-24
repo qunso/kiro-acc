@@ -149,6 +149,8 @@ export function chatCompletionsHandler(
         }
       }
 
+      await store.ensureMachineId(account.id)
+      account = store.get(account.id) || account
       const profileArn = resolveProfileArn(account)
       const payload = openaiToKiro(body, profileArn)
       const started = Date.now()

@@ -68,7 +68,17 @@ export interface AccountRecord {
   quotaDetail?: AccountQuotaDetail
   /** Cached subscription title from GetUsageLimits */
   subscriptionTitle?: string
-  /** Optional device/machine id from import or token metadata (display only; never spoofed). */
+  /**
+   * Per-account Machine ID / 机器码 — stable client identity appended to
+   * KiroIDE User-Agent on upstream calls. Same field as original managers'
+   * `machineId` (zh label 机器码, en label Machine ID). Not OS MachineGuid;
+   * not rotated per request.
+   */
+  machineId?: string
+  /**
+   * @deprecated Alias of machineId (PR #9 display-only import). Prefer machineId.
+   * Still accepted on import; mirrored for older admin UI clients.
+   */
   deviceId?: string
   stats?: AccountStats
   createdAt?: number
