@@ -102,6 +102,32 @@ pre.docs{background:#0d1218;border:1px solid var(--line);border-radius:10px;padd
     min-width:0;width:auto;
   }
 }
+
+.account-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+@media(max-width:1100px){.account-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:700px){.account-grid{grid-template-columns:1fr}}
+.account-card{background:#121a24;border:1px solid var(--line);border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:8px;min-width:0}
+.account-card.is-selected{border-color:var(--acc);box-shadow:0 0 0 1px rgba(91,156,255,.25)}
+.account-card .ac-top{display:flex;gap:8px;align-items:flex-start}
+.account-card .ac-check{margin-top:3px;flex-shrink:0}
+.account-card .ac-title{flex:1;min-width:0}
+.account-card .ac-title b{display:block;word-break:break-word}
+.account-card .ac-actions{display:flex;flex-wrap:wrap;gap:6px;align-items:center;justify-content:space-between}
+.credit-row{display:flex;justify-content:space-between;gap:8px;align-items:baseline}
+.credit-bar{height:6px;background:#0d1218;border-radius:999px;overflow:hidden;margin-top:4px;border:1px solid #1a2433}
+.credit-bar>i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--ok),var(--acc));border-radius:999px}
+.credit-bar.warn>i{background:var(--warn)}
+.credit-bar.bad>i{background:var(--bad)}
+.chip{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:999px;font-size:11px;background:#102033;border:1px solid #243044;color:var(--muted);margin:1px 2px 1px 0}
+.chip.group{color:var(--acc);border-color:#2a4568}
+.meta-edit{position:relative;display:inline-block}
+.meta-edit>summary{list-style:none;cursor:pointer;font-size:12px;color:var(--acc);padding:2px 0;user-select:none}
+.meta-edit>summary::-webkit-details-marker{display:none}
+.meta-panel{position:absolute;z-index:40;left:0;top:calc(100% + 4px);min-width:260px;padding:10px;border-radius:10px;background:#121a24;border:1px solid var(--line);box-shadow:0 12px 32px rgba(0,0,0,.45)}
+.meta-panel .tag-edit{width:100%;margin-bottom:6px}
+.chat-test-out{background:#0d1218;border:1px solid var(--line);border-radius:10px;padding:12px;min-height:110px;white-space:pre-wrap;word-break:break-word;font-family:ui-monospace,Menlo,monospace;font-size:12px;max-height:340px;overflow:auto}
+.chat-test-meta{font-size:12px;margin-top:6px}
+.btn-sm{padding:6px 10px;font-size:12px;min-height:32px}
 </style>
 </head>
 <body>
@@ -223,11 +249,28 @@ pre.docs{background:#0d1218;border:1px solid var(--line);border-radius:10px;padd
   <section id="tab-accounts" hidden>
     <div class="card stats" id="accountStats"></div>
     <div class="card">
-      <p class="muted">分组 / 标签可写回账号；批量操作勾选后执行。出口 ID/IP 只读，由池绑定写入。无 IDE 切号。</p>
+      <h2>测试聊天</h2>
+      <p class="muted">管理端直接指定账号发起一次补全（走账号已有出口绑定），无需代理 API Key。</p>
+      <div class="row" style="margin-bottom:8px">
+        <label class="muted">账号</label>
+        <select id="chatAccount" style="min-width:220px"><option value="">选择账号</option></select>
+        <label class="muted">模型</label>
+        <select id="chatModel" style="min-width:180px"><option value="">加载中…</option></select>
+      </div>
+      <textarea id="chatMessage" placeholder="输入测试消息…" style="min-height:72px"></textarea>
+      <div class="row" style="margin-top:8px">
+        <button class="primary" id="chatSend">发送</button>
+        <span class="muted chat-test-meta" id="chatStatus">就绪</span>
+      </div>
+      <div class="chat-test-out" id="chatOut" style="margin-top:10px">（响应将显示在这里）</div>
+    </div>
+    <div class="card">
+      <p class="muted">分组 / 标签点「编辑分组/标签」写入；批量操作勾选后执行。出口 ID/IP 只读，由池绑定写入。无 IDE 切号。</p>
       <div class="row" style="margin-bottom:10px">
         <input id="accountFilter" placeholder="搜索 标签/分组/邮箱/出口" style="width:240px"/>
         <select id="filterGroup"><option value="">全部分组</option></select>
         <select id="filterTag"><option value="">全部标签</option></select>
+        <label class="muted" style="display:inline-flex;align-items:center;gap:6px"><input type="checkbox" id="checkAllVisible" title="全选可见"/> 全选可见</label>
         <button id="selectAllVisible">全选可见</button>
         <button id="clearSelected">清空勾选</button>
       </div>
@@ -241,18 +284,7 @@ pre.docs{background:#0d1218;border:1px solid var(--line);border-radius:10px;padd
         <button data-batch="bind-pool">批量绑池</button>
         <button class="danger" data-batch="delete">批量删除</button>
       </div>
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th style="width:36px"><input type="checkbox" id="checkAllVisible" title="全选可见"/></th>
-              <th>账号</th><th>分组/标签</th><th>认证</th><th>状态</th>
-              <th>用量</th><th>代理池</th><th>已分配出口</th><th>操作</th>
-            </tr>
-          </thead>
-          <tbody id="accountBody"></tbody>
-        </table>
-      </div>
+      <div class="account-grid" id="accountBody"></div>
     </div>
   </section>
 
@@ -567,7 +599,99 @@ function usageCell(a) {
   const tok = s.tokens ?? ((s.inputTokens||0)+(s.outputTokens||0));
   const last = s.lastUsed || a.lastUsed;
   const lastStr = last ? new Date(last).toLocaleString() : '—';
-  return '<div class="mono">'+req+' 次 · '+tok+' tok</div><div class="muted" style="font-size:11px">'+esc(lastStr)+'</div>';
+  const used = Number(a.quotaUsed) || 0;
+  const limit = Number(a.quotaLimit) || 0;
+  let creditHtml;
+  if (limit > 0) {
+    const remain = Math.max(0, limit - used);
+    const ratio = Math.min(1, used / limit);
+    const pct = Math.round(ratio * 100);
+    const barCls = ratio >= 1 ? ' bad' : (ratio >= 0.85 ? ' warn' : '');
+    creditHtml =
+      '<div class="credit-row"><span class="mono"><b>'+remain+'</b> / '+limit+'</span>'+
+      '<span class="muted" style="font-size:11px">剩余/总积分 · '+pct+'%</span></div>'+
+      '<div class="credit-bar'+barCls+'"><i style="width:'+(ratio*100)+'%"></i></div>';
+  } else {
+    creditHtml =
+      '<div class="credit-row"><span class="mono muted">— / —</span>'+
+      '<span class="muted" style="font-size:11px">剩余/总积分未知</span></div>'+
+      '<div class="credit-bar"><i style="width:0"></i></div>';
+  }
+  return creditHtml +
+    '<div class="muted mono" style="font-size:11px;margin-top:4px">'+req+' 次 · '+tok+' tok · '+esc(lastStr)+'</div>';
+}
+function metaChips(a) {
+  const bits = [];
+  if (a.group) bits.push('<span class="chip group" title="分组">'+esc(a.group)+'</span>');
+  (a.tags || []).forEach(t => bits.push('<span class="badge">'+esc(t)+'</span>'));
+  if (!bits.length) bits.push('<span class="muted" style="font-size:12px">无分组/标签</span>');
+  return bits.join(' ');
+}
+function metaEditor(a) {
+  return '<details class="meta-edit">'+
+    '<summary>编辑分组/标签</summary>'+
+    '<div class="meta-panel">'+
+      '<input class="tag-edit" data-group-for="'+esc(a.id)+'" value="'+esc(a.group||'')+'" placeholder="分组"/>'+
+      '<input class="tag-edit" data-tags-for="'+esc(a.id)+'" value="'+esc((a.tags||[]).join(', '))+'" placeholder="标签,逗号分隔"/>'+
+      '<button type="button" class="primary btn-sm" data-save-meta="'+esc(a.id)+'">保存</button>'+
+    '</div></details>';
+}
+function fillChatAccountSelect(preserve) {
+  const sel = $('chatAccount');
+  if (!sel) return;
+  const prev = preserve != null ? preserve : sel.value;
+  sel.innerHTML = '<option value="">选择账号</option>'+state.accounts.map(a =>
+    '<option value="'+esc(a.id)+'">'+esc((a.label||a.email||a.id)+(a.outboundExitId?(' · '+a.outboundExitId):''))+'</option>'
+  ).join('');
+  if (prev) sel.value = prev;
+}
+async function loadChatModels() {
+  const sel = $('chatModel');
+  if (!sel) return;
+  try {
+    const r = await api('/chat-models');
+    const models = (r.models && r.models.length) ? r.models : [];
+    const aliases = r.customAliases || [];
+    const all = [...models];
+    aliases.forEach(a => { if (a && !all.includes(a)) all.push(a); });
+    const prev = sel.value;
+    sel.innerHTML = all.map(m => '<option value="'+esc(m)+'">'+esc(m)+'</option>').join('') ||
+      '<option value="claude-haiku-4.5">claude-haiku-4.5</option>';
+    if (prev && all.includes(prev)) sel.value = prev;
+    else if (all.includes('claude-haiku-4.5')) sel.value = 'claude-haiku-4.5';
+  } catch (e) {
+    sel.innerHTML = '<option value="claude-haiku-4.5">claude-haiku-4.5</option>';
+  }
+}
+async function runChatTest() {
+  const accountId = $('chatAccount').value;
+  const model = $('chatModel').value;
+  const message = ($('chatMessage').value || '').trim();
+  if (!accountId) { toast('请选择账号', true); return; }
+  if (!message) { toast('请输入消息', true); return; }
+  $('chatStatus').textContent = '发送中…';
+  $('chatOut').textContent = '';
+  const t0 = Date.now();
+  try {
+    const r = await api('/chat-test', {
+      method: 'POST',
+      body: JSON.stringify({ accountId, model, message }),
+    });
+    const latency = r.latencyMs != null ? r.latencyMs : (Date.now() - t0);
+    if (r.ok) {
+      $('chatStatus').textContent = '成功 · ' + (r.model || model) + ' · ' + latency + ' ms';
+      $('chatOut').textContent = r.text || '（空响应）';
+      toast('聊天测试成功 · ' + latency + ' ms');
+    } else {
+      $('chatStatus').textContent = '失败 · ' + latency + ' ms';
+      $('chatOut').textContent = (r.error || '未知错误') + (r.text ? ('\n\n' + r.text) : '');
+      toast(r.error || '聊天测试失败', true);
+    }
+  } catch (e) {
+    $('chatStatus').textContent = '错误';
+    $('chatOut').textContent = e.message || String(e);
+    toast(e.message || String(e), true);
+  }
 }
 function filteredAccounts() {
   const q = ($('accountFilter').value || '').toLowerCase();
@@ -658,22 +782,27 @@ function renderAccounts() {
 
   $('accountBody').innerHTML = list.map(a => {
     const auth = [a.provider, a.authMethod].filter(Boolean).join(' / ') || '—';
-    const tags = (a.tags || []).map(t => '<span class="badge">'+esc(t)+'</span>').join('') || '<span class="muted">—</span>';
     const checked = state.selected.has(a.id) ? ' checked' : '';
-    return '<tr>'+
-      '<td><input type="checkbox" data-sel="'+esc(a.id)+'"'+checked+'/></td>'+
-      '<td><b>'+esc(a.label||a.id)+'</b><div class="muted mono">'+esc(a.email||a.id)+'</div></td>'+
-      '<td>'+
-        '<div class="row" style="gap:4px;margin-bottom:4px"><input class="tag-edit" data-group-for="'+esc(a.id)+'" value="'+esc(a.group||'')+'" placeholder="分组"/><button type="button" data-save-meta="'+esc(a.id)+'">保存</button></div>'+
-        '<div class="row" style="gap:4px"><input class="tag-edit" style="width:160px" data-tags-for="'+esc(a.id)+'" value="'+esc((a.tags||[]).join(', '))+'" placeholder="标签,逗号分隔"/></div>'+
-        '<div style="margin-top:4px">'+tags+'</div>'+
-      '</td>'+
-      '<td>'+esc(auth)+'</td>'+
-      '<td>'+accountStatus(a)+'</td>'+
-      '<td>'+usageCell(a)+'</td>'+
-      '<td><select data-pool-for="'+esc(a.id)+'">'+poolOptions(a.outboundPoolId||'')+'</select></td>'+
-      '<td>'+exitTip(a)+'</td>'+
-      '<td>'+actionMenu([
+    const selectedCls = state.selected.has(a.id) ? ' is-selected' : '';
+    return '<div class="account-card'+selectedCls+'">'+
+      '<div class="ac-top">'+
+        '<input class="ac-check" type="checkbox" data-sel="'+esc(a.id)+'"'+checked+'/>'+
+        '<div class="ac-title">'+
+          '<b>'+esc(a.label||a.id)+'</b>'+
+          '<div class="muted mono" style="font-size:11px">'+esc(a.email||a.id)+'</div>'+
+          '<div style="margin-top:4px">'+accountStatus(a)+' <span class="muted" style="font-size:11px">'+esc(auth)+'</span></div>'+
+        '</div>'+
+      '</div>'+
+      '<div>'+usageCell(a)+'</div>'+
+      '<div class="row" style="gap:6px;align-items:center">'+
+        '<label class="muted" style="font-size:11px">代理池</label>'+
+        '<select data-pool-for="'+esc(a.id)+'" style="flex:1;min-width:0">'+poolOptions(a.outboundPoolId||'')+'</select>'+
+      '</div>'+
+      '<div class="muted" style="font-size:12px">出口 '+exitTip(a)+'</div>'+
+      '<div>'+metaChips(a)+' '+metaEditor(a)+'</div>'+
+      '<div class="ac-actions">'+
+        '<button type="button" class="btn-sm" data-chat-acc="'+esc(a.id)+'">测试聊天</button>'+
+        actionMenu([
           {label:'绑定', attrs:'data-bind="'+esc(a.id)+'"'},
           {label:'换绑', attrs:'data-rebind="'+esc(a.id)+'"'},
           {label:'探测', attrs:'data-probe="'+esc(a.id)+'"'},
@@ -683,15 +812,25 @@ function renderAccounts() {
             ? {label:'启用', attrs:'data-aen="'+esc(a.id)+'"'}
             : {label:'禁用', attrs:'data-adis="'+esc(a.id)+'"'},
           {label:'删除', attrs:'data-adel="'+esc(a.id)+'"', danger:true},
-        ])+'</td></tr>';
-  }).join('') || '<tr><td colspan="9" class="muted">暂无账号。到「导入」粘贴 OIDC / 账号 JSON。</td></tr>';
+        ])+
+      '</div>'+
+    '</div>';
+  }).join('') || '<div class="muted">暂无账号。到「导入」粘贴 OIDC / 账号 JSON。</div>';
   updateSelectedCount();
+  const allCb = $('checkAllVisible');
+  if (allCb) {
+    allCb.checked = list.length > 0 && list.every(a => state.selected.has(a.id));
+    allCb.indeterminate = list.some(a => state.selected.has(a.id)) && !allCb.checked;
+  }
   const sel = $('probeAccount');
-  const prev = sel.value;
-  sel.innerHTML = '<option value="">选择账号</option>'+state.accounts.map(a =>
-    '<option value="'+esc(a.id)+'">'+esc((a.label||a.email||a.id)+(a.outboundExitId?(' · '+a.outboundExitId):''))+'</option>'
-  ).join('');
-  if (prev) sel.value = prev;
+  if (sel) {
+    const prev = sel.value;
+    sel.innerHTML = '<option value="">选择账号</option>'+state.accounts.map(a =>
+      '<option value="'+esc(a.id)+'">'+esc((a.label||a.email||a.id)+(a.outboundExitId?(' · '+a.outboundExitId):''))+'</option>'
+    ).join('');
+    if (prev) sel.value = prev;
+  }
+  fillChatAccountSelect();
   bindMenuPositioning(document);
 }
 
@@ -1129,6 +1268,7 @@ $('reload').onclick = () => refresh();
 $('exitFilter').oninput = () => renderExits();
 $('exitSort').onchange = () => renderExits();
 $('accountFilter').oninput = () => renderAccounts();
+$('chatSend').onclick = () => runChatTest();
 $('filterGroup').onchange = () => renderAccounts();
 $('filterTag').onchange = () => renderAccounts();
 $('exitPickFilter').oninput = () => renderExitChecks();
@@ -1248,6 +1388,12 @@ document.body.addEventListener('click', async (ev) => {
       const r = await api('/accounts/' + encodeURIComponent(t.dataset.rebind) + '/rebind-exit', { method: 'POST', body: '{}' });
       const tip = r.assignedExit ? ((r.assignedExit.exitId||'') + (r.assignedExit.exitIp ? ' · ' + r.assignedExit.exitIp : '')) : (r.exitId||'');
       toast('已换绑 ' + tip); refresh();
+    } else if (t.dataset.chatAcc) {
+      fillChatAccountSelect(t.dataset.chatAcc);
+      $('chatAccount').value = t.dataset.chatAcc;
+      showTab('accounts');
+      $('chatMessage').focus();
+      toast('已选账号，可发送测试消息');
     } else if (t.dataset.probe) {
       $('probeAccount').value = t.dataset.probe;
       showTab('probe');
