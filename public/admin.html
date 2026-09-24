@@ -830,6 +830,31 @@ async function runChatTest() {
     toast(e.message || String(e), true);
   }
 }
+function filteredAccounts() {
+  const q = ($('accountFilter').value || '').toLowerCase();
+  const g = $('filterGroup').value;
+  const t = $('filterTag').value;
+  return state.accounts.filter(a => {
+    if (g && (a.group || '') !== g) return false;
+    if (t && !(a.tags || []).includes(t)) return false;
+    if (!q) return true;
+    return JSON.stringify({
+      label: a.label, email: a.email, group: a.group, tags: a.tags,
+      pool: a.outboundPoolId, exit: a.outboundExitId,
+      ip: a.assignedExit && a.assignedExit.exitIp
+    }).toLowerCase().includes(q);
+  });
+}
+function updateSelectedCount() {
+  $('selectedCount').textContent = '已选 ' + state.selected.size;
+}
+function actionMenu(items) {
+  const btns = items.map(it => {
+    const cls = it.danger ? ' class="danger"' : '';
+    return '<button type="button"' + cls + ' ' + it.attrs + '>' + it.label + '</button>';
+  }).join('');
+  return '<details class="menu"><summary>操作 ▾</summary><div class="menu-panel">' + btns + '</div></details>';
+}
 function positionMenu(details) {
   const panel = details.querySelector('.menu-panel');
   const summary = details.querySelector('summary');
