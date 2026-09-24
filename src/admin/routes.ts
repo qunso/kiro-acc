@@ -7,7 +7,7 @@ import {
   refreshAccountToken,
   resolveProfileArn,
 } from '../kiro/auth.js'
-import { getUsageLimits, UsageLimitsError } from '../kiro/usageLimits.js'
+import { getUsageLimits, quotaDetailFromCredit, UsageLimitsError } from '../kiro/usageLimits.js'
 import { callKiroApi, KiroApiError } from '../kiro/client.js'
 import { mapModelId, openaiToKiro, PUBLIC_MODELS } from '../kiro/translator.js'
 import { adminAuth } from '../middleware/auth.js'
@@ -896,13 +896,28 @@ export function createAdminRoutes(
     try {
       const live = store.get(id)!
       const quota = await getUsageLimits(live)
-      await store.applyQuota(id, quota.used, quota.limit, quota.resetAt)
+      const detail = quotaDetailFromCredit(quota)
+      await store.applyQuota(id, quota.used, quota.limit, quota.resetAt, detail)
       usageMeta = {
         used: quota.used,
         limit: quota.limit,
         resetAt: quota.resetAt ?? null,
         subscriptionTitle: quota.subscriptionTitle ?? null,
         endpoint: quota.endpoint,
+        baseUsed: quota.baseUsed,
+        baseLimit: quota.baseLimit,
+        trialUsed: quota.trialUsed,
+        trialLimit: quota.trialLimit,
+        bonusUsed: quota.bonusUsed,
+        bonusLimit: quota.bonusLimit,
+        bonusCount: quota.bonusCount,
+        resourceType: quota.resourceType ?? null,
+        overageCapability: quota.overageCapability ?? null,
+        upgradeCapability: quota.upgradeCapability ?? null,
+        overageStatus: quota.overageStatus ?? null,
+        userId: quota.userId ?? null,
+        userEmail: quota.userEmail ?? null,
+        detail,
       }
     } catch (err) {
       usageError =
@@ -1402,11 +1417,18 @@ export function createAdminRoutes(
         { path: '/admin/chat-test', apiStyle: 'openai', status: 200 },
       )
       // Best-effort: refresh CREDIT quota after a successful smoke chat
-      let quotaSnap: { used: number; limit: number; resetAt?: number } | undefined
+      let quotaSnap: Record<string, unknown> | undefined
       try {
         const q = await getUsageLimits(store.get(account.id) || account)
-        await store.applyQuota(account.id, q.used, q.limit, q.resetAt)
-        quotaSnap = { used: q.used, limit: q.limit, resetAt: q.resetAt }
+        const detail = quotaDetailFromCredit(q)
+        await store.applyQuota(account.id, q.used, q.limit, q.resetAt, detail)
+        quotaSnap = {
+          used: q.used,
+          limit: q.limit,
+          resetAt: q.resetAt,
+          subscriptionTitle: q.subscriptionTitle,
+          detail,
+        }
       } catch {
         /* ignore — chat succeeded */
       }

@@ -130,6 +130,8 @@ export class AccountStore {
       quotaLimit: p.quotaLimit,
       quotaExhaustedAt: p.quotaExhaustedAt,
       quotaResetAt: p.quotaResetAt,
+      quotaDetail: p.quotaDetail,
+      subscriptionTitle: p.subscriptionTitle,
       suspended: p.suspended,
       suspendedAt: p.suspendedAt,
       suspendReason: p.suspendReason,
@@ -266,8 +268,9 @@ export class AccountStore {
     used: number,
     limit: number,
     resetAt?: number,
+    detail?: AccountRecord['quotaDetail'],
   ): Promise<AccountRecord | undefined> {
-    this.pool.updateQuota(id, used, limit, resetAt)
+    this.pool.updateQuota(id, used, limit, resetAt, detail)
     this.syncFromPool(id)
     await this.flush()
     return this.get(id)

@@ -53,6 +53,14 @@ describe('creditQuotaFromUsageLimits', () => {
     )
     expect(q.used).toBe(14)
     expect(q.limit).toBe(115)
+    expect(q.baseUsed).toBe(12.5)
+    expect(q.baseLimit).toBe(100)
+    expect(q.trialUsed).toBe(1)
+    expect(q.trialLimit).toBe(10)
+    expect(q.bonusUsed).toBe(0.5)
+    expect(q.bonusLimit).toBe(5)
+    expect(q.bonusCount).toBe(1)
+    expect(q.resourceType).toBe('CREDIT')
     expect(q.subscriptionTitle).toBe('Kiro Pro')
     expect(q.resetAt).toBe(1_800_000_000 * 1000)
     expect(normalizeResetAt('2026-10-01T00:00:00.000Z')).toBe(
@@ -112,6 +120,18 @@ describe('refresh-subscription fetches usage limits', () => {
       limit: 100,
       resetAt: Date.now() + 86400_000,
       subscriptionTitle: 'Kiro Free',
+      baseUsed: 18,
+      baseLimit: 80,
+      trialUsed: 2,
+      trialLimit: 10,
+      bonusUsed: 0,
+      bonusLimit: 10,
+      bonusCount: 1,
+      resourceType: 'CREDIT',
+      overageCapability: 'OVERAGE_ALLOWED',
+      upgradeCapability: 'UPGRADE_AVAILABLE',
+      userId: 'uid-1',
+      userEmail: 'u@x.com',
       raw: {},
       endpoint: 'https://q.us-east-1.amazonaws.com',
     })
@@ -139,6 +159,14 @@ describe('refresh-subscription fetches usage limits', () => {
     expect(j.usage.limit).toBe(100)
     expect(j.account.quotaUsed).toBe(20)
     expect(j.account.quotaLimit).toBe(100)
+    expect(j.account.subscriptionTitle).toBe('Kiro Free')
+    expect(j.account.quotaDetail?.baseUsed).toBe(18)
+    expect(j.account.quotaDetail?.baseLimit).toBe(80)
+    expect(j.account.quotaDetail?.trialUsed).toBe(2)
+    expect(j.account.quotaDetail?.bonusCount).toBe(1)
+    expect(j.account.quotaDetail?.kiroUserId).toBe('uid-1')
+    expect(j.usage.baseUsed).toBe(18)
+    expect(j.usage.detail.resourceType).toBe('CREDIT')
     expect(getUsageLimits).toHaveBeenCalled()
     spy.mockRestore()
   })

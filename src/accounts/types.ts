@@ -9,6 +9,26 @@ export interface AccountStats {
   totalResponseTime: number
 }
 
+
+/** Persisted CREDIT breakdown from GetUsageLimits (detail drawer + card reuse). */
+export interface AccountQuotaDetail {
+  baseUsed: number
+  baseLimit: number
+  trialUsed: number
+  trialLimit: number
+  bonusUsed: number
+  bonusLimit: number
+  bonusCount: number
+  resourceType?: string
+  subscriptionTitle?: string
+  overageCapability?: string
+  upgradeCapability?: string
+  overageStatus?: string
+  kiroUserId?: string
+  kiroEmail?: string
+  fetchedAt?: number
+}
+
 export interface AccountRecord {
   id: string
   label: string
@@ -44,6 +64,10 @@ export interface AccountRecord {
   quotaLimit?: number
   quotaExhaustedAt?: number
   quotaResetAt?: number
+  /** Last known GetUsageLimits CREDIT breakdown for account detail drawer */
+  quotaDetail?: AccountQuotaDetail
+  /** Cached subscription title from GetUsageLimits */
+  subscriptionTitle?: string
   stats?: AccountStats
   createdAt?: number
   updatedAt?: number

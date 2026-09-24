@@ -5,7 +5,7 @@
  */
 import { randomUUID } from 'node:crypto'
 import { fetch as undiciFetch, type RequestInit as UndiciRequestInit } from 'undici'
-import type { AccountRecord } from '../accounts/types.js'
+import type { AccountQuotaDetail, AccountRecord } from '../accounts/types.js'
 import { getDispatcherForAccount } from '../net/outboundDispatcher.js'
 import { isPlaceholderProfileArn, resolveProfileArn } from './auth.js'
 
@@ -66,6 +66,19 @@ export interface CreditQuota {
   /** ms epoch when quota resets, if known */
   resetAt?: number
   subscriptionTitle?: string
+  baseUsed: number
+  baseLimit: number
+  trialUsed: number
+  trialLimit: number
+  bonusUsed: number
+  bonusLimit: number
+  bonusCount: number
+  resourceType?: string
+  overageCapability?: string
+  upgradeCapability?: string
+  overageStatus?: string
+  userId?: string
+  userEmail?: string
   raw: UsageLimitsResponse
   endpoint: string
 }
@@ -197,20 +210,60 @@ export function creditQuotaFromUsageLimits(
     trialLimit = num(trial.usageLimitWithPrecision, trial.usageLimit)
   }
 
+  const bonuses = credit?.bonuses || []
   let bonusUsed = 0
   let bonusLimit = 0
-  for (const b of credit?.bonuses || []) {
+  for (const b of bonuses) {
     bonusUsed += num(b.currentUsageWithPrecision, b.currentUsage)
     bonusLimit += num(b.usageLimitWithPrecision, b.usageLimit)
   }
+
+  const sub = raw.subscriptionInfo
+  const overage = raw.overageConfiguration
 
   return {
     used: baseUsed + trialUsed + bonusUsed,
     limit: baseLimit + trialLimit + bonusLimit,
     resetAt: normalizeResetAt(raw.nextDateReset),
-    subscriptionTitle: raw.subscriptionInfo?.subscriptionTitle,
+    subscriptionTitle: sub?.subscriptionTitle || sub?.subscriptionName,
+    baseUsed,
+    baseLimit,
+    trialUsed,
+    trialLimit,
+    bonusUsed,
+    bonusLimit,
+    bonusCount: bonuses.length,
+    resourceType: (credit?.resourceType || credit?.type || 'CREDIT').toUpperCase(),
+    overageCapability: sub?.overageCapability,
+    upgradeCapability: sub?.upgradeCapability,
+    overageStatus: overage?.overageStatus || (overage?.overageEnabled != null
+      ? (overage.overageEnabled ? 'ENABLED' : 'DISABLED')
+      : undefined),
+    userId: raw.userInfo?.userId,
+    userEmail: raw.userInfo?.email,
     raw,
     endpoint,
+  }
+}
+
+/** Persistable subset for AccountRecord.quotaDetail */
+export function quotaDetailFromCredit(q: CreditQuota): AccountQuotaDetail {
+  return {
+    baseUsed: q.baseUsed,
+    baseLimit: q.baseLimit,
+    trialUsed: q.trialUsed,
+    trialLimit: q.trialLimit,
+    bonusUsed: q.bonusUsed,
+    bonusLimit: q.bonusLimit,
+    bonusCount: q.bonusCount,
+    resourceType: q.resourceType,
+    subscriptionTitle: q.subscriptionTitle,
+    overageCapability: q.overageCapability,
+    upgradeCapability: q.upgradeCapability,
+    overageStatus: q.overageStatus,
+    kiroUserId: q.userId,
+    kiroEmail: q.userEmail,
+    fetchedAt: Date.now(),
   }
 }
 

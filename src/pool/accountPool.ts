@@ -335,7 +335,13 @@ export class AccountPool {
     })
   }
 
-  updateQuota(accountId: string, used: number, limit: number, resetAt?: number): void {
+  updateQuota(
+    accountId: string,
+    used: number,
+    limit: number,
+    resetAt?: number,
+    detail?: AccountRecord['quotaDetail'],
+  ): void {
     const account = this.accounts.get(accountId)
     if (!account) return
     this.accounts.set(accountId, {
@@ -344,6 +350,12 @@ export class AccountPool {
       quotaLimit: limit,
       quotaResetAt: resetAt,
       quotaExhaustedAt: used < limit ? undefined : account.quotaExhaustedAt,
+      ...(detail
+        ? {
+            quotaDetail: detail,
+            subscriptionTitle: detail.subscriptionTitle ?? account.subscriptionTitle,
+          }
+        : {}),
     })
   }
 

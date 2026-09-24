@@ -141,6 +141,33 @@ pre.docs{background:#0d1218;border:1px solid var(--line);border-radius:10px;padd
   .modal-overlay{padding:12px}
   .modal{padding:12px}
 }
+
+/* Account detail drawer (right slide-over) */
+.drawer-overlay{position:fixed;inset:0;z-index:90;background:rgba(4,8,14,.55);display:none}
+.drawer-overlay.open{display:block}
+.drawer{position:fixed;top:0;right:0;bottom:0;z-index:91;width:min(440px,100%);background:var(--card);border-left:1px solid var(--line);box-shadow:-16px 0 48px rgba(0,0,0,.45);display:flex;flex-direction:column;transform:translateX(100%);transition:transform .2s ease}
+.drawer-overlay.open .drawer{transform:translateX(0)}
+.drawer-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:14px 16px;border-bottom:1px solid var(--line);flex-shrink:0}
+.drawer-head h2{margin:0;font-size:16px}
+.drawer-body{padding:14px 16px 28px;overflow:auto;flex:1;min-height:0}
+.drawer-sec{margin-bottom:16px;padding:12px;border:1px solid var(--line);border-radius:10px;background:#121a24}
+.drawer-sec h3{margin:0 0 10px;font-size:13px;color:var(--acc);font-weight:600;letter-spacing:.02em}
+.drawer-sec .dl{display:grid;grid-template-columns:110px 1fr;gap:6px 10px;font-size:13px}
+.drawer-sec .dl dt{color:var(--muted);margin:0}
+.drawer-sec .dl dd{margin:0;word-break:break-word}
+.drawer-progress{height:8px;background:#0d1218;border-radius:999px;overflow:hidden;border:1px solid #1a2433;margin:8px 0 4px}
+.drawer-progress>i{display:block;height:100%;background:linear-gradient(90deg,var(--ok),var(--acc))}
+.drawer-progress.warn>i{background:var(--warn)}
+.drawer-progress.bad>i{background:var(--bad)}
+.drawer-quota-row{display:flex;justify-content:space-between;gap:8px;font-size:12px;margin-top:6px;padding-top:6px;border-top:1px dashed #243044}
+.drawer-quota-row:first-of-type{border-top:0;padding-top:0}
+.drawer-models{display:flex;flex-wrap:wrap;gap:6px}
+.drawer-models .chip{margin:0}
+.drawer-empty{font-size:12px;color:var(--muted);padding:6px 0}
+@media(max-width:520px){
+  .drawer{width:100%}
+}
+
 </style>
 </head>
 <body>
@@ -547,6 +574,20 @@ pre.docs{background:#0d1218;border:1px solid var(--line);border-radius:10px;padd
     <div class="chat-test-out" id="chatOut" style="margin-top:10px">（响应将显示在这里）</div>
   </div>
 </div>
+
+<div class="drawer-overlay" id="accountDrawer" hidden>
+  <aside class="drawer" role="dialog" aria-modal="true" aria-labelledby="drawerTitle" id="accountDrawerPanel">
+    <div class="drawer-head">
+      <div>
+        <h2 id="drawerTitle">账号详情</h2>
+        <p class="muted" style="margin:4px 0 0;font-size:12px" id="drawerSub">—</p>
+      </div>
+      <button type="button" id="drawerClose" class="ghost" title="关闭">关闭</button>
+    </div>
+    <div class="drawer-body" id="drawerBody"></div>
+  </aside>
+</div>
+
 <div class="toast" id="toast"></div>
 <script>
 const $ = (id) => document.getElementById(id);
@@ -826,6 +867,193 @@ function bindMenuPositioning(root) {
   });
 }
 
+
+let drawerAccountId = null;
+
+function fmtNum(n) {
+  if (n == null || !Number.isFinite(Number(n))) return '—';
+  const x = Number(n);
+  return Number.isInteger(x) ? String(x) : (Math.round(x * 100) / 100).toString();
+}
+function fmtTs(ms) {
+  if (!ms) return '—';
+  try { return new Date(ms).toLocaleString(); } catch { return '—'; }
+}
+function progressCls(used, limit) {
+  if (!(limit > 0)) return '';
+  const r = used / limit;
+  if (r >= 1) return ' bad';
+  if (r >= 0.85) return ' warn';
+  return '';
+}
+function closeAccountDrawer() {
+  const ov = $('accountDrawer');
+  if (!ov) return;
+  ov.classList.remove('open');
+  ov.hidden = true;
+  drawerAccountId = null;
+}
+function mergeAccountFromUsage(acc, usage) {
+  if (!acc || !usage) return acc;
+  const next = Object.assign({}, acc);
+  if (usage.used != null) next.quotaUsed = usage.used;
+  if (usage.limit != null) next.quotaLimit = usage.limit;
+  if (usage.resetAt != null) next.quotaResetAt = usage.resetAt;
+  if (usage.subscriptionTitle) next.subscriptionTitle = usage.subscriptionTitle;
+  if (usage.detail) next.quotaDetail = usage.detail;
+  else if (usage.baseUsed != null) {
+    next.quotaDetail = {
+      baseUsed: usage.baseUsed,
+      baseLimit: usage.baseLimit,
+      trialUsed: usage.trialUsed,
+      trialLimit: usage.trialLimit,
+      bonusUsed: usage.bonusUsed,
+      bonusLimit: usage.bonusLimit,
+      bonusCount: usage.bonusCount || 0,
+      resourceType: usage.resourceType || 'CREDIT',
+      subscriptionTitle: usage.subscriptionTitle,
+      overageCapability: usage.overageCapability,
+      upgradeCapability: usage.upgradeCapability,
+      overageStatus: usage.overageStatus,
+      kiroUserId: usage.userId,
+      kiroEmail: usage.userEmail,
+      fetchedAt: Date.now(),
+    };
+  }
+  return next;
+}
+function patchAccountInState(account) {
+  if (!account || !account.id) return;
+  const i = state.accounts.findIndex(a => a.id === account.id);
+  if (i >= 0) state.accounts[i] = Object.assign({}, state.accounts[i], account);
+  else state.accounts.push(account);
+}
+function renderAccountDrawer(a) {
+  const body = $('drawerBody');
+  if (!body || !a) return;
+  const d = a.quotaDetail || {};
+  const used = Number(a.quotaUsed) || 0;
+  const limit = Number(a.quotaLimit) || 0;
+  const pct = limit > 0 ? Math.round(Math.min(1, used / limit) * 100) : null;
+  const baseUsed = d.baseUsed != null ? d.baseUsed : null;
+  const baseLimit = d.baseLimit != null ? d.baseLimit : null;
+  const trialUsed = d.trialUsed != null ? d.trialUsed : null;
+  const trialLimit = d.trialLimit != null ? d.trialLimit : null;
+  const bonusUsed = d.bonusUsed != null ? d.bonusUsed : null;
+  const bonusLimit = d.bonusLimit != null ? d.bonusLimit : null;
+  const bonusCount = d.bonusCount != null ? d.bonusCount : null;
+  const resetAt = a.quotaResetAt || null;
+  const subTitle = a.subscriptionTitle || d.subscriptionTitle || '';
+  const resourceType = d.resourceType || (limit > 0 ? 'CREDIT' : '');
+  const overage = d.overageCapability || d.overageStatus || '';
+  const upgrade = d.upgradeCapability || '';
+  const kiroUid = d.kiroUserId || '';
+  const provider = [a.provider, a.authMethod].filter(Boolean).join(' / ') || '—';
+
+  $('drawerTitle').textContent = a.label || a.email || a.id;
+  $('drawerSub').textContent = (a.email || a.id) + (subTitle ? (' · ' + subTitle) : '');
+
+  let quotaHtml =
+    '<div class="drawer-sec" id="drawerQuotaSec">'+
+      '<div class="row" style="justify-content:space-between;align-items:center;margin-bottom:8px">'+
+        '<h3 style="margin:0">配额总览</h3>'+
+        '<button type="button" class="btn-sm primary" id="drawerRefreshQuota">刷新数据</button>'+
+      '</div>'+
+      '<div class="credit-row"><span class="mono"><b>'+fmtNum(used)+'</b> / '+fmtNum(limit > 0 ? limit : null)+'</span>'+
+        '<span class="muted" style="font-size:11px">'+(pct != null ? (pct+'% 已用') : '未知')+'</span></div>'+
+      '<div class="drawer-progress'+progressCls(used, limit)+'"><i style="width:'+(limit>0?Math.min(100,used/limit*100):0)+'%"></i></div>'+
+      '<div class="drawer-quota-row"><span class="muted">主配额</span><span class="mono">'+fmtNum(baseUsed)+' / '+fmtNum(baseLimit)+'</span></div>'+
+      '<div class="drawer-quota-row"><span class="muted">重置日</span><span class="mono">'+esc(fmtTs(resetAt))+'</span></div>'+
+      '<div class="drawer-quota-row"><span class="muted">免费试用</span><span class="mono">'+fmtNum(trialUsed)+' / '+fmtNum(trialLimit)+'</span></div>'+
+      '<div class="drawer-quota-row"><span class="muted">奖励总计'+(bonusCount!=null?' ('+bonusCount+')':'')+'</span><span class="mono">'+fmtNum(bonusUsed)+' / '+fmtNum(bonusLimit)+'</span></div>'+
+      (d.fetchedAt ? '<div class="muted" style="font-size:11px;margin-top:8px">缓存于 '+esc(fmtTs(d.fetchedAt))+'</div>' : '<div class="muted" style="font-size:11px;margin-top:8px">尚未拉取明细，点「刷新数据」</div>')+
+    '</div>';
+
+  let basicHtml =
+    '<div class="drawer-sec"><h3>基本信息</h3><dl class="dl">'+
+      '<dt>邮箱/ID</dt><dd class="mono">'+esc(a.email || a.id)+'</dd>'+
+      '<dt>账号别名</dt><dd>'+esc(a.label || '—')+'</dd>'+
+      '<dt>身份提供商</dt><dd>'+esc(provider)+'</dd>'+
+      '<dt>用户 ID</dt><dd class="mono">'+esc(kiroUid || '—')+'</dd>'+
+    '</dl></div>';
+
+  let subHtml =
+    '<div class="drawer-sec"><h3>订阅详情</h3><dl class="dl">'+
+      '<dt>Region</dt><dd class="mono">'+esc(a.region || '—')+'</dd>'+
+      '<dt>Token 到期</dt><dd class="mono">'+esc(fmtTs(a.expiresAt))+'</dd>'+
+      '<dt>订阅类型</dt><dd class="mono">'+esc(subTitle || '—')+'</dd>'+
+      (overage ? '<dt>超额费率</dt><dd class="mono">'+esc(overage)+'</dd>' : '')+
+      '<dt>资源类型</dt><dd class="mono">'+esc(resourceType || '—')+'</dd>'+
+      (upgrade ? '<dt>可升级</dt><dd class="mono">'+esc(upgrade)+'</dd>' : '')+
+    '</dl></div>';
+
+  let modelsHtml =
+    '<div class="drawer-sec"><h3>账户可用模型</h3>'+
+      '<div class="drawer-empty">暂无按账号拉取的模型列表（ListAvailableModels 尚未接入）。聊天测试使用管理端内置目录，不代表该账号远程可用集。</div>'+
+    '</div>';
+
+  let proxyHtml = '';
+  if (a.outboundPoolId || a.outboundExitId || (a.assignedExit && (a.assignedExit.poolId || a.assignedExit.exitId))) {
+    const poolId = a.outboundPoolId || (a.assignedExit && a.assignedExit.poolId) || '';
+    const pool = state.pools.find(p => p.id === poolId);
+    const poolLabel = pool ? (pool.name ? pool.id + ' · ' + pool.name : pool.id) : (poolId || '—');
+    proxyHtml =
+      '<div class="drawer-sec"><h3>绑定代理</h3><dl class="dl">'+
+        '<dt>代理池</dt><dd class="mono">'+esc(poolLabel)+'</dd>'+
+        '<dt>出口</dt><dd>'+exitTip(a)+'</dd>'+
+      '</dl>'+
+      '<p class="muted" style="font-size:11px;margin:8px 0 0">只读展示；改绑请在卡片上使用代理池下拉 / 操作菜单。</p>'+
+      '</div>';
+  } else {
+    proxyHtml =
+      '<div class="drawer-sec"><h3>绑定代理</h3>'+
+        '<div class="drawer-empty">未绑定代理池 / 出口。</div></div>';
+  }
+
+  body.innerHTML = quotaHtml + basicHtml + subHtml + modelsHtml + proxyHtml;
+  const btn = $('drawerRefreshQuota');
+  if (btn) btn.onclick = () => refreshDrawerQuota();
+}
+async function openAccountDrawer(accountId) {
+  const a = state.accounts.find(x => x.id === accountId);
+  if (!a) { toast('账号不存在', true); return; }
+  drawerAccountId = accountId;
+  const ov = $('accountDrawer');
+  if (!ov) return;
+  renderAccountDrawer(a);
+  ov.hidden = false;
+  ov.classList.add('open');
+}
+async function refreshDrawerQuota() {
+  if (!drawerAccountId) return;
+  const btn = $('drawerRefreshQuota');
+  if (btn) { btn.disabled = true; btn.textContent = '刷新中…'; }
+  try {
+    const r = await api('/accounts/' + encodeURIComponent(drawerAccountId) + '/refresh-subscription', { method: 'POST' });
+    if (r.account) patchAccountInState(r.account);
+    else if (r.usage) {
+      const cur = state.accounts.find(a => a.id === drawerAccountId);
+      if (cur) patchAccountInState(mergeAccountFromUsage(cur, r.usage));
+    }
+    if (r.usageFetched) {
+      const u = r.usage || {};
+      toast('已刷新数据 · ' + fmtNum(u.used) + ' / ' + fmtNum(u.limit));
+    } else {
+      toast(r.usageError || 'Token 已刷新，用量拉取失败', true);
+    }
+    const live = state.accounts.find(a => a.id === drawerAccountId);
+    if (live) renderAccountDrawer(live);
+    renderAccounts();
+    if (state.subs) loadSubs();
+  } catch (e) {
+    toast(e.message || String(e), true);
+  } finally {
+    const b = $('drawerRefreshQuota');
+    if (b) { b.disabled = false; b.textContent = '刷新数据'; }
+  }
+}
+
+
 function renderAccounts() {
   const list = filteredAccounts();
   const enabled = state.accounts.filter(a => a.enabled !== false).length;
@@ -868,6 +1096,7 @@ function renderAccounts() {
       '<div class="muted" style="font-size:12px">出口 '+exitTip(a)+'</div>'+
       '<div>'+metaChips(a)+' '+metaEditor(a)+'</div>'+
       '<div class="ac-actions">'+
+        '<button type="button" class="btn-sm" data-detail="'+esc(a.id)+'">详情</button>'+
         '<button type="button" class="btn-sm" data-chat-acc="'+esc(a.id)+'">测试聊天</button>'+
         '<button type="button" class="btn-sm" data-refresh-quota="'+esc(a.id)+'">刷新积分</button>'+
         actionMenu([
@@ -1342,8 +1571,14 @@ $('chatModalClose') && ($('chatModalClose').onclick = () => closeChatModal());
 $('chatModal') && $('chatModal').addEventListener('click', (ev) => {
   if (ev.target === $('chatModal')) closeChatModal();
 });
+$('drawerClose') && ($('drawerClose').onclick = () => closeAccountDrawer());
+$('accountDrawer') && $('accountDrawer').addEventListener('click', (ev) => {
+  if (ev.target === $('accountDrawer')) closeAccountDrawer();
+});
 document.addEventListener('keydown', (ev) => {
-  if (ev.key === 'Escape' && $('chatModal') && $('chatModal').classList.contains('open')) closeChatModal();
+  if (ev.key !== 'Escape') return;
+  if ($('accountDrawer') && $('accountDrawer').classList.contains('open')) { closeAccountDrawer(); return; }
+  if ($('chatModal') && $('chatModal').classList.contains('open')) closeChatModal();
 });
 $('chatQuickChips') && $('chatQuickChips').addEventListener('click', (ev) => {
   const btn = ev.target.closest('[data-chat-prompt]');
@@ -1472,6 +1707,8 @@ document.body.addEventListener('click', async (ev) => {
       const r = await api('/accounts/' + encodeURIComponent(t.dataset.rebind) + '/rebind-exit', { method: 'POST', body: '{}' });
       const tip = r.assignedExit ? ((r.assignedExit.exitId||'') + (r.assignedExit.exitIp ? ' · ' + r.assignedExit.exitIp : '')) : (r.exitId||'');
       toast('已换绑 ' + tip); refresh();
+    } else if (t.dataset.detail) {
+      openAccountDrawer(t.dataset.detail);
     } else if (t.dataset.chatAcc) {
       showTab('accounts');
       openChatModal(t.dataset.chatAcc);
@@ -1479,8 +1716,17 @@ document.body.addEventListener('click', async (ev) => {
     } else if (t.dataset.refreshQuota) {
       try {
         const r = await api('/accounts/' + encodeURIComponent(t.dataset.refreshQuota) + '/refresh-subscription', { method: 'POST' });
+        if (r.account) patchAccountInState(r.account);
+        else if (r.usage) {
+          const cur = state.accounts.find(a => a.id === t.dataset.refreshQuota);
+          if (cur) patchAccountInState(mergeAccountFromUsage(cur, r.usage));
+        }
         if (r.usageFetched) toast('已刷新积分 ' + (r.usage ? (Math.max(0,(r.usage.limit||0)-(r.usage.used||0)) + ' / ' + r.usage.limit) : ''));
         else toast(r.usageError || 'Token 已刷新，但用量拉取失败', true);
+        if (drawerAccountId === t.dataset.refreshQuota) {
+          const live = state.accounts.find(a => a.id === drawerAccountId);
+          if (live) renderAccountDrawer(live);
+        }
         refresh();
         if (state.subs) loadSubs();
       } catch (e) { toast(e.message || String(e), true); }
