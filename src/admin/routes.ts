@@ -2,7 +2,13 @@ import { Hono } from 'hono'
 import type { AccountStore } from '../accounts/store.js'
 import type { AccountCreateInput, AccountRecord, PersistedConfig } from '../accounts/types.js'
 import { normalizeAccountImport } from '../accounts/importNormalize.js'
-import { refreshAccountToken } from '../kiro/auth.js'
+import {
+  isTokenExpiringSoon,
+  refreshAccountToken,
+  resolveProfileArn,
+} from '../kiro/auth.js'
+import { callKiroApi, KiroApiError } from '../kiro/client.js'
+import { mapModelId, openaiToKiro, PUBLIC_MODELS } from '../kiro/translator.js'
 import { adminAuth } from '../middleware/auth.js'
 import type { AppConfig } from '../config.js'
 import type { ExitsStore } from '../exits/store.js'
@@ -14,7 +20,7 @@ import { probeTlsFingerprint } from './tlsProbe.js'
 import type { ApiKeyStore } from '../apiKeys/store.js'
 import type { ModelMapStore } from '../proxy/modelMapStore.js'
 import { globalRequestLog } from '../proxy/requestLog.js'
-import { mapModelId, PUBLIC_MODELS } from '../kiro/translator.js'
+import { recordProxyUsage } from '../proxy/logUsage.js'
 import type { WebhookStore } from '../webhooks/store.js'
 import { WEBHOOK_EVENTS, type WebhookChannel, type WebhookEvent } from '../webhooks/types.js'
 import { sendWebhookWithRetry } from '../webhooks/dispatch.js'
@@ -1263,6 +1269,151 @@ export function createAdminRoutes(
       },
     }),
   )
+
+
+  // --- In-admin chat test (pin account, no proxy API key) ---
+
+  app.get('/chat-models', (c) => {
+    const custom = modelMap?.get() || {}
+    return c.json({
+      models: PUBLIC_MODELS.map((m) => m.id),
+      customAliases: Object.keys(custom),
+    })
+  })
+
+  app.post('/chat-test', async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as {
+      accountId?: string
+      model?: string
+      message?: string
+    }
+    const accountId = (body.accountId || '').trim()
+    const model = (body.model || '').trim() || 'claude-haiku-4.5'
+    const message = (body.message || '').trim()
+    if (!accountId) return c.json({ ok: false, error: 'accountId is required' }, 400)
+    if (!message) return c.json({ ok: false, error: 'message is required' }, 400)
+
+    let account = store.get(accountId)
+    if (!account) return c.json({ ok: false, error: 'account not found', accountId }, 404)
+
+    const refreshBefore =
+      store.getPersistedConfig().tokenRefreshBeforeExpirySec ?? config.tokenRefreshBeforeExpirySec
+    const preferred =
+      store.getPersistedConfig().preferredEndpoint ?? config.preferredEndpoint
+
+    if (isTokenExpiringSoon(account, refreshBefore) && account.refreshToken) {
+      const result = await refreshAccountToken(account)
+      if (result.success && result.accessToken) {
+        await store.applyTokenRefresh(account.id, {
+          accessToken: result.accessToken,
+          refreshToken: result.refreshToken,
+          expiresAt: result.expiresAt,
+        })
+        account = store.get(accountId)!
+      } else {
+        return c.json(
+          {
+            ok: false,
+            accountId,
+            model,
+            error: result.error || 'Token refresh failed',
+            latencyMs: 0,
+          },
+          400,
+        )
+      }
+    }
+
+    if (!account.accessToken) {
+      return c.json(
+        { ok: false, accountId, model, error: 'account has no accessToken', latencyMs: 0 },
+        400,
+      )
+    }
+
+    const profileArn = resolveProfileArn(account)
+    const payload = openaiToKiro(
+      {
+        model,
+        messages: [{ role: 'user', content: message }],
+      },
+      profileArn,
+    )
+    const started = Date.now()
+    try {
+      const result = await callKiroApi(account, payload, {
+        preferredEndpoint: preferred,
+        signal: c.req.raw.signal,
+      })
+      const latencyMs = Date.now() - started
+      const resolvedModel = result.usage.modelId || mapModelId(model)
+      store.pool.recordSuccess(
+        account.id,
+        result.usage.inputTokens + result.usage.outputTokens,
+        result.usage.inputTokens,
+        result.usage.outputTokens,
+        latencyMs,
+      )
+      await recordProxyUsage(
+        store,
+        {
+          timestamp: Date.now(),
+          accountId: account.id,
+          model: resolvedModel,
+          inputTokens: result.usage.inputTokens,
+          outputTokens: result.usage.outputTokens,
+          success: true,
+          responseTimeMs: latencyMs,
+        },
+        { path: '/admin/chat-test', apiStyle: 'openai', status: 200 },
+      )
+      return c.json({
+        ok: true,
+        accountId: account.id,
+        model: resolvedModel,
+        text: result.content || '',
+        latencyMs,
+        usage: {
+          inputTokens: result.usage.inputTokens,
+          outputTokens: result.usage.outputTokens,
+          credits: result.usage.credits,
+        },
+      })
+    } catch (err) {
+      const latencyMs = Date.now() - started
+      const msg = err instanceof Error ? err.message : String(err)
+      const status = err instanceof KiroApiError ? err.statusCode : 502
+      await recordProxyUsage(
+        store,
+        {
+          timestamp: Date.now(),
+          accountId: account.id,
+          model: mapModelId(model),
+          inputTokens: 0,
+          outputTokens: 0,
+          success: false,
+          error: msg,
+          responseTimeMs: latencyMs,
+        },
+        {
+          path: '/admin/chat-test',
+          apiStyle: 'openai',
+          status: status >= 400 && status < 600 ? status : 502,
+        },
+      )
+      return c.json(
+        {
+          ok: false,
+          accountId: account.id,
+          model: mapModelId(model),
+          text: '',
+          latencyMs,
+          error: msg,
+        },
+        200,
+      )
+    }
+  })
 
   return app
 }
