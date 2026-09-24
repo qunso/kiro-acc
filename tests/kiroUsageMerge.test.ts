@@ -52,6 +52,59 @@ describe('mergeKiroUsageFromEvent', () => {
     expect(usage.outputTokens).toBe(12)
   })
 
+
+  it('reads messageMetadataEvent.tokenUsage (live wire alias of metadataEvent)', () => {
+    const usage = emptyUsage()
+    mergeKiroUsageFromEvent(
+      usage,
+      {
+        messageMetadataEvent: {
+          tokenUsage: {
+            uncachedInputTokens: 900,
+            outputTokens: 40,
+            cacheReadInputTokens: 100,
+          },
+        },
+      },
+      'messageMetadataEvent',
+    )
+    expect(usage.inputTokens).toBe(1000)
+    expect(usage.outputTokens).toBe(40)
+    expect(usage.cacheReadTokens).toBe(100)
+  })
+
+  it('accepts numeric strings in tokenUsage fields', () => {
+    const usage = emptyUsage()
+    mergeKiroUsageFromEvent(
+      usage,
+      {
+        tokenUsage: {
+          uncachedInputTokens: '250',
+          outputTokens: '18',
+        },
+      },
+      'metadataEvent',
+    )
+    expect(usage.inputTokens).toBe(250)
+    expect(usage.outputTokens).toBe(18)
+  })
+
+  it('recovers input from totalTokens when uncached/input missing', () => {
+    const usage = emptyUsage()
+    mergeKiroUsageFromEvent(
+      usage,
+      {
+        tokenUsage: {
+          outputTokens: 30,
+          totalTokens: 530,
+        },
+      },
+      'messageMetadataEvent',
+    )
+    expect(usage.outputTokens).toBe(30)
+    expect(usage.inputTokens).toBe(500)
+  })
+
   it('treats meteringEvent.usage as credits, not tokens', () => {
     const usage = emptyUsage()
     mergeKiroUsageFromEvent(usage, { usage: 7, unit: 'CREDIT' }, 'meteringEvent')
