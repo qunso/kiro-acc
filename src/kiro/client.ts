@@ -21,8 +21,8 @@ import {
   type KiroToolUse,
   type KiroUsage,
 } from './translator.js'
+import { getKiroIdeVersion } from './ideVersion.js'
 
-const KIRO_VERSION = '0.12.155'
 const AWS_SDK_VERSION = '1.0.34'
 
 interface Endpoint {
@@ -62,12 +62,12 @@ function authHeaders(account: AccountRecord): Record<string, string> {
     'content-type': 'application/json',
     'x-amzn-kiro-agent-mode': 'vibe',
     'x-amz-user-agent': buildKiroAmzUserAgent({
-      kiroVersion: KIRO_VERSION,
+      kiroVersion: getKiroIdeVersion(),
       awsSdkVersion: AWS_SDK_VERSION,
       machineId,
     }),
     'user-agent': buildKiroUserAgent({
-      kiroVersion: KIRO_VERSION,
+      kiroVersion: getKiroIdeVersion(),
       awsSdkVersion: AWS_SDK_VERSION,
       machineId,
     }),

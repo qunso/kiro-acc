@@ -9,6 +9,13 @@ import { WebhookStore } from './webhooks/store.js'
 import { OpsSettingsStore } from './admin/opsSettings.js'
 import { globalRequestLog } from './proxy/requestLog.js'
 import { createServer } from './server.js'
+import {
+  configureKiroIdeVersion,
+  getKiroIdeVersion,
+  loadKiroIdeVersionCache,
+  refreshKiroIdeVersion,
+  startKiroIdeVersionRefreshLoop,
+} from './kiro/ideVersion.js'
 
 async function main() {
   const config = loadConfig()
@@ -34,6 +41,13 @@ async function main() {
   await opsSettings.init()
   globalRequestLog.setCapacity(opsSettings.get().requestLogCapacity ?? 500)
 
+  configureKiroIdeVersion({ dataDir: config.dataDir })
+  await loadKiroIdeVersionCache()
+  void refreshKiroIdeVersion().then((v) => {
+    console.log(`[kiro-acc] kiroIdeVersion=${v}`)
+  })
+  startKiroIdeVersionRefreshLoop()
+
   const app = createServer(store, config, exits, pools, {
     apiKeys,
     modelMap,
@@ -42,6 +56,7 @@ async function main() {
   })
 
   console.log(`[kiro-acc] dataDir=${config.dataDir}`)
+  console.log(`[kiro-acc] kiroIdeVersion(ua)=${getKiroIdeVersion()}`)
   console.log(`[kiro-acc] strategy=${store.pool.getStrategy()} accounts=${store.pool.size}`)
   console.log(`[kiro-acc] exits=${exits.listIds().length} broker=${exits.get().brokerBase || '-'}`)
   console.log(`[kiro-acc] pools=${pools.list().length}`)

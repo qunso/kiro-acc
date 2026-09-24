@@ -1529,9 +1529,15 @@ async function loadSettings() {
     $('settingsHint').textContent = '请求日志 '+(s.requestLog? (s.requestLog.size+'/'+s.requestLog.capacity):'');
     const ab = s.about || {};
     const health = s.health || {};
+    const ideVer = ab.kiroIdeVersion || '';
+    const ideSrc = ab.kiroIdeVersionSource || '';
+    const ideNote = ideVer
+      ? (ideSrc ? (ideVer + ' (' + ideSrc + ')') : ideVer)
+      : '—';
     $('aboutKv').innerHTML =
       '<dt>版本</dt><dd class="mono">'+esc(ab.version||'')+'</dd>'+
       '<dt>git</dt><dd class="mono">'+esc(ab.gitCommit||'—')+'</dd>'+
+      '<dt>UA IDE 版本</dt><dd class="mono" title="上游 User-Agent 中的 KiroIDE-{ver}">'+esc(ideNote)+'</dd>'+
       '<dt>Node</dt><dd class="mono">'+esc(ab.node||'')+'</dd>'+
       '<dt>平台</dt><dd class="mono">'+esc(ab.platform||'')+'</dd>'+
       '<dt>进程 uptime</dt><dd class="mono">'+esc(ab.uptimeSec||0)+'s</dd>'+

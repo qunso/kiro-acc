@@ -13,8 +13,8 @@ import {
 } from '../accounts/machineId.js'
 import { getDispatcherForAccount } from '../net/outboundDispatcher.js'
 import { isPlaceholderProfileArn, resolveProfileArn } from './auth.js'
+import { getKiroIdeVersion } from './ideVersion.js'
 
-const KIRO_VERSION = '0.12.155'
 const AWS_SDK_VERSION = '1.0.34'
 
 const REST_BASES: Record<string, string> = {
@@ -128,12 +128,12 @@ function authHeaders(account: AccountRecord): Record<string, string> {
     Accept: 'application/json',
     Authorization: `Bearer ${account.accessToken}`,
     'user-agent': buildKiroUserAgent({
-      kiroVersion: KIRO_VERSION,
+      kiroVersion: getKiroIdeVersion(),
       awsSdkVersion: AWS_SDK_VERSION,
       machineId,
     }),
     'x-amz-user-agent': buildKiroAmzUserAgent({
-      kiroVersion: KIRO_VERSION,
+      kiroVersion: getKiroIdeVersion(),
       awsSdkVersion: AWS_SDK_VERSION,
       machineId,
     }),
