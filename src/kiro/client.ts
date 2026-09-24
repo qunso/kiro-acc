@@ -127,28 +127,39 @@ async function doFetch(
 
 
 function asNum(v: unknown): number | undefined {
-  return typeof v === 'number' && Number.isFinite(v) ? v : undefined
+  if (typeof v === 'number' && Number.isFinite(v)) return v
+  if (typeof v === 'string' && v.trim() !== '') {
+    const n = Number(v)
+    if (Number.isFinite(n)) return n
+  }
+  return undefined
 }
 
 /**
  * Merge token/credit fields from a decoded Kiro AWS event-stream frame into `usage`.
  *
  * Real wire shape (Smithy ChatResponseStream): tokens live on
- * `metadataEvent.tokenUsage` with `uncachedInputTokens` / `outputTokens`
- * (plus optional cache* fields). `meteringEvent.usage` is a **credit** count,
- * not tokens — do not treat it as input/output tokens.
+ * `metadataEvent` / `messageMetadataEvent`.tokenUsage with
+ * `uncachedInputTokens` / `outputTokens` (plus optional cache* fields).
+ * `meteringEvent.usage` is a **credit** count, not tokens.
  */
 export function mergeKiroUsageFromEvent(
   usage: KiroUsage,
   event: Record<string, unknown>,
   eventType = '',
 ): void {
-  const metaWrapper =
-    eventType === 'metadataEvent' || event.metadataEvent
-      ? ((event.metadataEvent as Record<string, unknown> | undefined) || event)
-      : event.tokenUsage
-        ? event
-        : null
+  const nestedMeta =
+    (event.messageMetadataEvent as Record<string, unknown> | undefined) ||
+    (event.metadataEvent as Record<string, unknown> | undefined)
+  const isMetaType =
+    eventType === 'metadataEvent' ||
+    eventType === 'messageMetadataEvent' ||
+    Boolean(nestedMeta)
+  const metaWrapper: Record<string, unknown> | null = isMetaType
+    ? nestedMeta || event
+    : event.tokenUsage
+      ? event
+      : null
 
   if (metaWrapper) {
     const tuRaw = metaWrapper.tokenUsage
@@ -157,7 +168,8 @@ export function mergeKiroUsageFromEvent(
         ? (tuRaw as Record<string, unknown>)
         : asNum(metaWrapper.uncachedInputTokens) !== undefined ||
             asNum(metaWrapper.inputTokens) !== undefined ||
-            asNum(metaWrapper.outputTokens) !== undefined
+            asNum(metaWrapper.outputTokens) !== undefined ||
+            asNum(metaWrapper.totalTokens) !== undefined
           ? metaWrapper
           : null
 
@@ -176,6 +188,16 @@ export function mergeKiroUsageFromEvent(
       }
       const out = asNum(tu.outputTokens)
       if (out !== undefined) usage.outputTokens = out
+      // Some frames only give totalTokens; recover input when still zero.
+      const total = asNum(tu.totalTokens)
+      if (
+        total !== undefined &&
+        (usage.inputTokens || 0) === 0 &&
+        (usage.outputTokens || 0) > 0 &&
+        total >= (usage.outputTokens || 0)
+      ) {
+        usage.inputTokens = total - (usage.outputTokens || 0)
+      }
     }
   }
 
@@ -198,8 +220,12 @@ export function mergeKiroUsageFromEvent(
   if (eventType !== 'assistantResponseEvent' && eventType !== 'toolUseEvent') {
     const inTok = asNum(event.inputTokens)
     const outTok = asNum(event.outputTokens)
-    if (inTok !== undefined && !event.metadataEvent && !event.tokenUsage) usage.inputTokens = inTok
-    if (outTok !== undefined && !event.metadataEvent && !event.tokenUsage) usage.outputTokens = outTok
+    if (inTok !== undefined && !event.metadataEvent && !event.messageMetadataEvent && !event.tokenUsage) {
+      usage.inputTokens = inTok
+    }
+    if (outTok !== undefined && !event.metadataEvent && !event.messageMetadataEvent && !event.tokenUsage) {
+      usage.outputTokens = outTok
+    }
   }
 
   // meteringEvent.usage = credits (not tokens)
