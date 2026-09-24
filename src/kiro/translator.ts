@@ -153,6 +153,8 @@ export interface KiroUsage {
   cacheReadTokens?: number
   cacheWriteTokens?: number
   reasoningTokens?: number
+  /** Model id actually sent to the upstream endpoint that succeeded. */
+  modelId?: string
 }
 
 /** Runtime overrides from data/model-map.json (OpenAI name → upstream). */
@@ -172,15 +174,74 @@ export function getCustomModelMap(): Record<string, string> {
   return { ...customModelMap }
 }
 
+/** Canonical Kiro API model ids (dot form) verified against kiro.dev + peer catalogs. */
+const KIRO_FRIENDLY_IDS = new Set([
+  'claude-opus-5',
+  'claude-sonnet-5',
+  'claude-fable-5',
+  'claude-opus-4.8',
+  'claude-opus-4.7',
+  'claude-opus-4.6',
+  'claude-opus-4.5',
+  'claude-sonnet-4.6',
+  'claude-sonnet-4.5',
+  'claude-sonnet-4',
+  'claude-haiku-4.5',
+  'gpt-5.6-sol',
+  'gpt-5.6-terra',
+  'gpt-5.6-luna',
+  'deepseek-3.2',
+  'minimax-m2.5',
+  'minimax-m2.1',
+  'glm-5',
+  'qwen3-coder-next',
+  'auto',
+])
+
 const MODEL_ID_MAP: Record<string, string> = {
-  'claude-sonnet-4-5': 'claude-sonnet-4.5',
-  'claude-sonnet-4.5': 'claude-sonnet-4.5',
-  'claude-haiku-4-5': 'claude-haiku-4.5',
-  'claude-haiku-4.5': 'claude-haiku-4.5',
+  // Claude Opus 5 (never alias to 4.5)
+  'claude-opus-5': 'claude-opus-5',
+  // Claude Sonnet 5
+  'claude-sonnet-5': 'claude-sonnet-5',
+  // Claude Fable 5
+  'claude-fable-5': 'claude-fable-5',
+  // Claude Opus 4.x
+  'claude-opus-4-8': 'claude-opus-4.8',
+  'claude-opus-4.8': 'claude-opus-4.8',
+  'claude-opus-4-7': 'claude-opus-4.7',
+  'claude-opus-4.7': 'claude-opus-4.7',
+  'claude-opus-4-6': 'claude-opus-4.6',
+  'claude-opus-4.6': 'claude-opus-4.6',
   'claude-opus-4-5': 'claude-opus-4.5',
   'claude-opus-4.5': 'claude-opus-4.5',
+  // Claude Sonnet 4.x
+  'claude-sonnet-4-6': 'claude-sonnet-4.6',
+  'claude-sonnet-4.6': 'claude-sonnet-4.6',
+  'claude-sonnet-4-5': 'claude-sonnet-4.5',
+  'claude-sonnet-4.5': 'claude-sonnet-4.5',
   'claude-sonnet-4': 'claude-sonnet-4',
   'claude-sonnet-4-20250514': 'claude-sonnet-4',
+  // Claude Haiku
+  'claude-haiku-4-5': 'claude-haiku-4.5',
+  'claude-haiku-4.5': 'claude-haiku-4.5',
+  // GPT 5.6 tiers (Kiro)
+  'gpt-5.6-sol': 'gpt-5.6-sol',
+  'gpt-5-6-sol': 'gpt-5.6-sol',
+  'gpt-5.6-terra': 'gpt-5.6-terra',
+  'gpt-5-6-terra': 'gpt-5.6-terra',
+  'gpt-5.6-luna': 'gpt-5.6-luna',
+  'gpt-5-6-luna': 'gpt-5.6-luna',
+  // Open-weight / other Kiro models
+  'deepseek-3.2': 'deepseek-3.2',
+  'deepseek-3-2': 'deepseek-3.2',
+  'minimax-m2.5': 'minimax-m2.5',
+  'minimax-m2-5': 'minimax-m2.5',
+  'minimax-m2.1': 'minimax-m2.1',
+  'minimax-m2-1': 'minimax-m2.1',
+  'glm-5': 'glm-5',
+  'qwen3-coder-next': 'qwen3-coder-next',
+  auto: 'auto',
+  // Legacy OpenAI / Claude 3 aliases → current defaults (not Opus 5)
   'claude-3-5-sonnet': 'claude-sonnet-4.5',
   'claude-3-opus': 'claude-sonnet-4.5',
   'claude-3-sonnet': 'claude-sonnet-4',
@@ -194,25 +255,52 @@ const MODEL_ID_MAP: Record<string, string> = {
 
 const CODEWHISPERER_DEFAULT = 'CLAUDE_SONNET_4_20250514_V1_0'
 
+/** Normalize claude-*(sonnet|haiku|opus|fable)-N-M → N.M (e.g. 4-8 → 4.8). */
 function normalizeClaudeVersion(modelId: string): string {
   return modelId.replace(
-    /^(claude-(?:sonnet|haiku|opus))-(\d+)-(\d{1,2})(?=$|[^\d])/i,
+    /^(claude-(?:sonnet|haiku|opus|fable))-(\d+)-(\d{1,2})(?=$|[^\d])/i,
     '$1-$2.$3',
   )
+}
+
+/** Normalize other Kiro dash forms (gpt-5-6-sol → gpt-5.6-sol, deepseek-3-2 → deepseek-3.2). */
+function normalizeKiroVersion(modelId: string): string {
+  let id = normalizeClaudeVersion(modelId)
+  id = id.replace(/^(gpt)-(\d+)-(\d+)(-[a-z]+)$/i, '$1-$2.$3$4')
+  id = id.replace(/^(deepseek)-(\d+)-(\d+)$/i, '$1-$2.$3')
+  id = id.replace(/^(minimax-m)(\d+)-(\d+)$/i, '$1$2.$3')
+  return id
+}
+
+export function isKiroFriendlyModelId(modelId: string): boolean {
+  const lower = modelId.trim().toLowerCase()
+  if (KIRO_FRIENDLY_IDS.has(lower)) return true
+  if (/^claude-(sonnet|haiku|opus|fable)-/.test(lower)) return true
+  if (/^gpt-5\.\d+-/.test(lower)) return true
+  if (/^(deepseek|minimax-m|glm|qwen3-coder)/.test(lower)) return true
+  if (lower === 'auto') return true
+  return false
 }
 
 export function mapModelId(model: string): string {
   let modelId = model.trim()
   if (!modelId) return MODEL_ID_MAP.default!
   if (/^[A-Z0-9_]+$/.test(modelId) && modelId.includes('CLAUDE')) return modelId
-  modelId = normalizeClaudeVersion(modelId)
+  modelId = normalizeKiroVersion(modelId)
   const lower = modelId.toLowerCase()
   if (customModelMap[lower]) return customModelMap[lower]!
   if (MODEL_ID_MAP[lower]) return MODEL_ID_MAP[lower]!
-  if (/^claude-(sonnet|haiku|opus)-/.test(lower)) return modelId
+  // Pass through unknown Claude / known-family Kiro ids (do not silently remap Opus 5 → Sonnet).
+  if (isKiroFriendlyModelId(lower)) return lower
   return MODEL_ID_MAP.default!
 }
 
+/**
+ * CodeWhisperer historically used SCREAMING_SNAKE ids for a few Claude 4.x models.
+ * Newer Kiro models (Opus 5, Sonnet 5, Opus 4.6+, GPT 5.6, …) are accepted as the
+ * friendly/dot ids used by Amazon Q and peer proxies. Pass those through instead of
+ * defaulting to Sonnet 4 (which silently downgraded Opus 5).
+ */
 export function toCodeWhispererModelId(modelId: string): string {
   if (/^[A-Z0-9_]+$/.test(modelId) && modelId.includes('CLAUDE')) return modelId
   const map: Record<string, string> = {
@@ -221,14 +309,31 @@ export function toCodeWhispererModelId(modelId: string): string {
     'claude-opus-4.5': 'CLAUDE_OPUS_4_5_20251101_V1_0',
     'claude-sonnet-4': 'CLAUDE_SONNET_4_20250514_V1_0',
   }
-  return map[modelId] || CODEWHISPERER_DEFAULT
+  if (map[modelId]) return map[modelId]!
+  if (isKiroFriendlyModelId(modelId)) return modelId
+  return CODEWHISPERER_DEFAULT
 }
 
 export const PUBLIC_MODELS = [
+  { id: 'claude-opus-5', object: 'model', owned_by: 'kiro' },
+  { id: 'claude-sonnet-5', object: 'model', owned_by: 'kiro' },
+  { id: 'claude-opus-4.8', object: 'model', owned_by: 'kiro' },
+  { id: 'claude-opus-4.7', object: 'model', owned_by: 'kiro' },
+  { id: 'claude-opus-4.6', object: 'model', owned_by: 'kiro' },
+  { id: 'claude-opus-4.5', object: 'model', owned_by: 'kiro' },
+  { id: 'claude-sonnet-4.6', object: 'model', owned_by: 'kiro' },
   { id: 'claude-sonnet-4.5', object: 'model', owned_by: 'kiro' },
   { id: 'claude-sonnet-4', object: 'model', owned_by: 'kiro' },
   { id: 'claude-haiku-4.5', object: 'model', owned_by: 'kiro' },
-  { id: 'claude-opus-4.5', object: 'model', owned_by: 'kiro' },
+  { id: 'gpt-5.6-sol', object: 'model', owned_by: 'kiro' },
+  { id: 'gpt-5.6-terra', object: 'model', owned_by: 'kiro' },
+  { id: 'gpt-5.6-luna', object: 'model', owned_by: 'kiro' },
+  { id: 'deepseek-3.2', object: 'model', owned_by: 'kiro' },
+  { id: 'minimax-m2.5', object: 'model', owned_by: 'kiro' },
+  { id: 'minimax-m2.1', object: 'model', owned_by: 'kiro' },
+  { id: 'glm-5', object: 'model', owned_by: 'kiro' },
+  { id: 'qwen3-coder-next', object: 'model', owned_by: 'kiro' },
+  { id: 'auto', object: 'model', owned_by: 'kiro' },
   { id: 'gpt-4o', object: 'model', owned_by: 'kiro' },
 ]
 

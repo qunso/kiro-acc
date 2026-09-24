@@ -8,7 +8,7 @@ import {
   refreshAccountToken,
   resolveProfileArn,
 } from '../kiro/auth.js'
-import type { KiroUsage } from '../kiro/translator.js'
+import { mapModelId, type KiroUsage } from '../kiro/translator.js'
 import {
   ClaudeSseSession,
   claudeToKiro,
@@ -179,7 +179,7 @@ export function messagesHandler(
         await recordProxyUsage(store, {
           timestamp: Date.now(),
           accountId: account.id,
-          model: body.model,
+          model: result.usage.modelId || mapModelId(body.model),
           inputTokens: result.usage.inputTokens,
           outputTokens: result.usage.outputTokens,
           success: true,
@@ -201,7 +201,7 @@ export function messagesHandler(
         await recordProxyUsage(store, {
           timestamp: Date.now(),
           accountId: account.id,
-          model: body.model,
+          model: mapModelId(body.model),
           inputTokens: 0,
           outputTokens: 0,
           success: false,
@@ -272,7 +272,7 @@ async function handleClaudeStream(
         await recordProxyUsage(store, {
           timestamp: Date.now(),
           accountId,
-          model: body.model,
+          model: usage.modelId || mapModelId(body.model),
           inputTokens: usage.inputTokens,
           outputTokens: usage.outputTokens,
           success: true,
@@ -294,7 +294,7 @@ async function handleClaudeStream(
         await recordProxyUsage(store, {
           timestamp: Date.now(),
           accountId,
-          model: body.model,
+          model: usage.modelId || mapModelId(body.model),
           inputTokens: 0,
           outputTokens: 0,
           success: false,
