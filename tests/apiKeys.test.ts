@@ -57,3 +57,40 @@ describe('ApiKeyStore', () => {
     expect(keyOk.status).toBe(200)
   })
 })
+
+describe('apiKeyAuth context + usage attribution', () => {
+  it('sets apiKeyId/label on context for managed and env keys', async () => {
+    const dir = await tmpDir()
+    const keys = new ApiKeyStore(dir, 'env-secret')
+    await keys.init()
+    const created = await keys.create('ops')
+    const config = { apiKey: 'env-secret', adminToken: 'adm' } as AppConfig
+    const app = new Hono()
+    app.use('*', apiKeyAuth(config, keys))
+    app.get('/v1/x', (c) =>
+      c.json({
+        apiKeyId: c.get('apiKeyId'),
+        apiKeyLabel: c.get('apiKeyLabel'),
+      }),
+    )
+
+    const envRes = await app.request('/v1/x', { headers: { authorization: 'Bearer env-secret' } })
+    expect(envRes.status).toBe(200)
+    expect(await envRes.json()).toEqual({ apiKeyId: 'env', apiKeyLabel: 'ENV API_KEY' })
+
+    const keyRes = await app.request('/v1/x', { headers: { 'x-api-key': created.key } })
+    expect(keyRes.status).toBe(200)
+    expect(await keyRes.json()).toEqual({ apiKeyId: created.id, apiKeyLabel: 'ops' })
+  })
+
+  it('resolveKey returns null for revoked or unknown keys', async () => {
+    const dir = await tmpDir()
+    const store = new ApiKeyStore(dir, '')
+    await store.init()
+    const created = await store.create('temp')
+    expect(store.resolveKey(created.key)?.id).toBe(created.id)
+    await store.revoke(created.id)
+    expect(store.resolveKey(created.key)).toBeNull()
+    expect(store.resolveKey('nope')).toBeNull()
+  })
+})

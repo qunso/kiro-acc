@@ -389,7 +389,7 @@ pre.docs{background:#0d1218;border:1px solid var(--line);border-radius:10px;padd
     </div>
     <div class="card">
       <h2>API Keys</h2>
-      <p class="muted">除环境变量 <code>API_KEY</code> 外，可在此创建持久化密钥。创建时明文只显示一次。</p>
+      <p class="muted">除环境变量 <code>API_KEY</code> 外，可在此创建持久化密钥。创建时明文只显示一次。下方「按 Key 汇总」展示各密钥的请求数与 token。</p>
       <div class="row" style="margin-bottom:10px">
         <input id="newKeyLabel" placeholder="标签（可选）" style="width:200px"/>
         <button class="primary" id="createApiKey">创建 Key</button>
@@ -397,7 +397,7 @@ pre.docs{background:#0d1218;border:1px solid var(--line);border-radius:10px;padd
       <div id="envKeyHint" class="muted" style="margin-bottom:8px"></div>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>标签</th><th>Key</th><th>状态</th><th>创建</th><th>操作</th></tr></thead>
+          <thead><tr><th>标签</th><th>Key</th><th>状态</th><th>请求数</th><th>Token（入/出）</th><th>最近使用</th><th>创建</th><th>操作</th></tr></thead>
           <tbody id="apiKeyBody"></tbody>
         </table>
       </div>
@@ -423,7 +423,7 @@ pre.docs{background:#0d1218;border:1px solid var(--line);border-radius:10px;padd
       <h2>最近请求</h2>
       <p class="muted">内存环形缓冲（有上限，重启清空）。</p>
       <div class="row" style="margin-bottom:10px">
-        <input id="logFilter" placeholder="过滤 model / account / error / path" style="width:260px"/>
+        <input id="logFilter" placeholder="过滤 model / account / key / error / path" style="width:280px"/>
         <select id="logStyle">
           <option value="">全部风格</option>
           <option value="openai">openai</option>
@@ -435,7 +435,7 @@ pre.docs{background:#0d1218;border:1px solid var(--line);border-radius:10px;padd
       </div>
       <div class="table-wrap" style="max-height:360px">
         <table>
-          <thead><tr><th>时间</th><th>风格</th><th>模型</th><th>账号</th><th>状态</th><th>耗时</th><th>错误</th></tr></thead>
+          <thead><tr><th>时间</th><th>风格</th><th>模型</th><th>账号</th><th>API Key</th><th>状态</th><th>耗时</th><th>错误</th></tr></thead>
           <tbody id="requestLogBody"></tbody>
         </table>
       </div>
@@ -970,12 +970,16 @@ function renderAccountDrawer(a) {
       (d.fetchedAt ? '<div class="muted" style="font-size:11px;margin-top:8px">缓存于 '+esc(fmtTs(d.fetchedAt))+'</div>' : '<div class="muted" style="font-size:11px;margin-top:8px">尚未拉取明细，点「刷新数据」</div>')+
     '</div>';
 
+  const deviceId = a.deviceId || a.machineId || a.clientDeviceId || '';
   let basicHtml =
     '<div class="drawer-sec"><h3>基本信息</h3><dl class="dl">'+
       '<dt>邮箱/ID</dt><dd class="mono">'+esc(a.email || a.id)+'</dd>'+
       '<dt>账号别名</dt><dd>'+esc(a.label || '—')+'</dd>'+
       '<dt>身份提供商</dt><dd>'+esc(provider)+'</dd>'+
       '<dt>用户 ID</dt><dd class="mono">'+esc(kiroUid || '—')+'</dd>'+
+      '<dt>设备 ID</dt><dd class="mono">'+esc(deviceId || '—')+
+        (deviceId ? '' : '<div class="muted" style="font-size:11px;margin-top:4px">未记录（导入 JSON 含 deviceId / machineId 时显示；本服务不伪造设备指纹）</div>')+
+      '</dd>'+
     '</dl></div>';
 
   let subHtml =
@@ -1086,6 +1090,9 @@ function renderAccounts() {
         '<div class="ac-title">'+
           '<b>'+esc(a.label||a.id)+'</b>'+
           '<div class="muted mono" style="font-size:11px">'+esc(a.email||a.id)+'</div>'+
+          (a.deviceId || a.machineId || a.clientDeviceId
+            ? '<div class="muted mono" style="font-size:11px">设备 ID '+esc(a.deviceId || a.machineId || a.clientDeviceId)+'</div>'
+            : '')+
           '<div style="margin-top:4px">'+accountStatus(a)+' <span class="muted" style="font-size:11px">'+esc(auth)+'</span></div>'+
         '</div>'+
       '</div>'+
@@ -1238,18 +1245,37 @@ curl -s ${base}/v1/messages \\
   $('envKeyHint').textContent = state.envKey && state.envKey.configured
     ? ('环境变量 API_KEY 已配置：' + (state.envKey.masked || '••••') + '（始终有效）')
     : '未检测到环境变量 API_KEY；请创建下方密钥或配置 env。';
-  $('apiKeyBody').innerHTML = (state.apiKeys || []).map(k => {
+  function keyStatsCells(k) {
+    const req = k.requestCount != null ? k.requestCount : 0;
+    const inn = k.inputTokens != null ? k.inputTokens : 0;
+    const out = k.outputTokens != null ? k.outputTokens : 0;
+    const last = k.lastUsedAt ? new Date(k.lastUsedAt).toLocaleString() : '—';
+    return '<td class="mono">'+esc(String(req))+'</td>'+
+      '<td class="mono">'+esc(String(inn))+' / '+esc(String(out))+'</td>'+
+      '<td class="muted">'+esc(last)+'</td>';
+  }
+  const envRow = (state.envKey && (state.envKey.configured || state.envKey.requestCount))
+    ? ('<tr>'+
+        '<td>'+esc(state.envKey.label || 'ENV API_KEY')+'<div class="muted mono">env</div></td>'+
+        '<td class="mono">'+esc(state.envKey.masked || '••••')+'</td>'+
+        '<td><span class="badge ok">env</span></td>'+
+        keyStatsCells(state.envKey)+
+        '<td class="muted">—</td><td class="muted">环境变量</td></tr>')
+    : '';
+  const keyRows = (state.apiKeys || []).map(k => {
     const active = k.active !== false && !k.revokedAt;
     return '<tr>'+
       '<td>'+esc(k.label)+'<div class="muted mono">'+esc(k.id)+'</div></td>'+
       '<td class="mono">'+esc(k.masked)+'</td>'+
       '<td>'+(active?'<span class="badge ok">active</span>':'<span class="badge bad">revoked</span>')+'</td>'+
+      keyStatsCells(k)+
       '<td class="muted">'+esc(k.createdAt ? new Date(k.createdAt).toLocaleString() : '')+'</td>'+
       '<td class="row">'+
         (active ? '<button data-revoke-key="'+esc(k.id)+'">吊销</button>' : '')+
         '<button class="danger" data-del-key="'+esc(k.id)+'">删除</button>'+
       '</td></tr>';
-  }).join('') || '<tr><td colspan="5" class="muted">暂无持久化密钥</td></tr>';
+  }).join('');
+  $('apiKeyBody').innerHTML = (envRow + keyRows) || '<tr><td colspan="8" class="muted">暂无持久化密钥</td></tr>';
 
   const map = state.modelMap || {};
   const rows = Object.keys(map).sort().map(k =>
@@ -1272,11 +1298,12 @@ async function reloadRequestLog() {
         '<td>'+esc(e.apiStyle)+'</td>'+
         '<td class="mono">'+esc(e.model||'')+'</td>'+
         '<td class="mono">'+esc((e.accountId||'').slice(0,12))+'</td>'+
+        '<td class="mono" title="'+esc(e.apiKeyId||'')+'">'+esc(e.apiKeyLabel || e.apiKeyId || '—')+'</td>'+
         '<td>'+(e.success?'<span class="badge ok">'+e.status+'</span>':'<span class="badge bad">'+e.status+'</span>')+'</td>'+
         '<td>'+esc(e.latencyMs)+'ms</td>'+
         '<td class="muted">'+esc(e.error||'')+'</td>'+
       '</tr>'
-    ).join('') || '<tr><td colspan="7" class="muted">暂无请求</td></tr>';
+    ).join('') || '<tr><td colspan="8" class="muted">暂无请求</td></tr>';
   } catch (e) { toast(e.message, true); }
 }
 

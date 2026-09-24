@@ -23,4 +23,37 @@ describe('RequestLog', () => {
     const byStyle = log.list({ apiStyle: 'anthropic' })
     expect(byStyle).toHaveLength(3)
   })
+
+  it('stores and filters by api key label/id', () => {
+    const log = new RequestLog(10)
+    log.push({
+      method: 'POST',
+      path: '/v1/messages',
+      apiStyle: 'anthropic',
+      model: 'claude-sonnet-4.5',
+      accountId: 'acct-1',
+      apiKeyId: 'key-aaa',
+      apiKeyLabel: 'ops',
+      status: 200,
+      success: true,
+      latencyMs: 12,
+    })
+    log.push({
+      method: 'POST',
+      path: '/v1/chat/completions',
+      apiStyle: 'openai',
+      model: 'gpt-4o',
+      accountId: 'acct-2',
+      apiKeyId: 'env',
+      apiKeyLabel: 'ENV API_KEY',
+      status: 200,
+      success: true,
+      latencyMs: 9,
+    })
+    const byLabel = log.list({ apiKey: 'ops' })
+    expect(byLabel).toHaveLength(1)
+    expect(byLabel[0]?.apiKeyId).toBe('key-aaa')
+    const byQ = log.list({ q: 'env api_key' })
+    expect(byQ.some((e) => e.apiKeyId === 'env')).toBe(true)
+  })
 })
