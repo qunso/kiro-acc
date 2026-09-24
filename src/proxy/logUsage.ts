@@ -22,6 +22,8 @@ export async function recordProxyUsage(
     apiStyle: extra.apiStyle,
     model: usage.model,
     accountId: usage.accountId,
+    apiKeyId: usage.apiKeyId,
+    apiKeyLabel: usage.apiKeyLabel,
     status: extra.status,
     success: usage.success,
     latencyMs: usage.responseTimeMs,

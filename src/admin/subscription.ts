@@ -129,3 +129,47 @@ export function usageByAccount(usage: UsageStore): Record<
   }
   return out
 }
+
+/** Per-API-key usage rollup from persisted usage.json (optional enrichment). */
+export function usageByApiKey(usage: UsageStore): Record<
+  string,
+  {
+    apiKeyId: string
+    apiKeyLabel?: string
+    requestCount: number
+    inputTokens: number
+    outputTokens: number
+    lastUsedAt: number
+  }
+> {
+  const out: Record<
+    string,
+    {
+      apiKeyId: string
+      apiKeyLabel?: string
+      requestCount: number
+      inputTokens: number
+      outputTokens: number
+      lastUsedAt: number
+    }
+  > = {}
+  for (const rec of usage.records || []) {
+    const id = rec.apiKeyId
+    if (!id) continue
+    const cur = out[id] || {
+      apiKeyId: id,
+      apiKeyLabel: rec.apiKeyLabel,
+      requestCount: 0,
+      inputTokens: 0,
+      outputTokens: 0,
+      lastUsedAt: 0,
+    }
+    cur.requestCount++
+    cur.inputTokens += rec.inputTokens || 0
+    cur.outputTokens += rec.outputTokens || 0
+    if (rec.apiKeyLabel) cur.apiKeyLabel = rec.apiKeyLabel
+    if ((rec.timestamp || 0) > cur.lastUsedAt) cur.lastUsedAt = rec.timestamp || 0
+    out[id] = cur
+  }
+  return out
+}

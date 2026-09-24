@@ -26,7 +26,7 @@ import type { WebhookStore } from '../webhooks/store.js'
 import { WEBHOOK_EVENTS, type WebhookChannel, type WebhookEvent } from '../webhooks/types.js'
 import { sendWebhookWithRetry } from '../webhooks/dispatch.js'
 import { signalDiagnoseFailed, signalRefreshFailed } from '../webhooks/signals.js'
-import { buildSubscriptionSummary, usageByAccount } from './subscription.js'
+import { buildSubscriptionSummary, usageByAccount, usageByApiKey } from './subscription.js'
 import { diagnoseAccount } from './diagnose.js'
 import {
   assertNoSecretsInBundle,
@@ -757,12 +757,91 @@ export function createAdminRoutes(
     })
   })
 
-  app.get('/api-keys', (c) => {
+  app.get('/api-keys', async (c) => {
     if (!apiKeys) return c.json({ error: 'api keys store not initialized' }, 500)
-    return c.json({
-      keys: apiKeys.listPublic(),
-      envKey: { configured: apiKeys.hasEnvKey(), masked: apiKeys.envKeyMasked() },
+    const usage = await store.getUsage()
+    const byKey = usageByApiKey(usage)
+    const emptyStats = () => ({
+      requestCount: 0,
+      inputTokens: 0,
+      outputTokens: 0,
+      lastUsedAt: null as number | null,
     })
+    const withStats = apiKeys.listPublic().map((k) => {
+      const u = byKey[k.id]
+      return {
+        ...k,
+        requestCount: u?.requestCount || 0,
+        inputTokens: u?.inputTokens || 0,
+        outputTokens: u?.outputTokens || 0,
+        lastUsedAt: u?.lastUsedAt || null,
+      }
+    })
+    const envConfigured = apiKeys.hasEnvKey()
+    const envUsage = byKey['env']
+    return c.json({
+      keys: withStats,
+      envKey: {
+        configured: envConfigured,
+        masked: apiKeys.envKeyMasked(),
+        id: 'env',
+        label: 'ENV API_KEY',
+        ...(envConfigured || envUsage
+          ? {
+              requestCount: envUsage?.requestCount || 0,
+              inputTokens: envUsage?.inputTokens || 0,
+              outputTokens: envUsage?.outputTokens || 0,
+              lastUsedAt: envUsage?.lastUsedAt || null,
+            }
+          : emptyStats()),
+      },
+    })
+  })
+
+  app.get('/api-keys/usage', async (c) => {
+    if (!apiKeys) return c.json({ error: 'api keys store not initialized' }, 500)
+    const usage = await store.getUsage()
+    const byKey = usageByApiKey(usage)
+    type KeyUsageRow = {
+      id: string
+      label: string
+      active: boolean
+      masked: string
+      requestCount: number
+      inputTokens: number
+      outputTokens: number
+      lastUsedAt: number | null
+      source: 'managed' | 'env'
+    }
+    const rows: KeyUsageRow[] = apiKeys.listPublic().map((k) => {
+      const u = byKey[k.id]
+      return {
+        id: k.id,
+        label: k.label,
+        active: k.active,
+        masked: k.masked,
+        requestCount: u?.requestCount || 0,
+        inputTokens: u?.inputTokens || 0,
+        outputTokens: u?.outputTokens || 0,
+        lastUsedAt: u?.lastUsedAt || null,
+        source: 'managed',
+      }
+    })
+    if (apiKeys.hasEnvKey() || byKey['env']) {
+      const u = byKey['env']
+      rows.unshift({
+        id: 'env',
+        label: 'ENV API_KEY',
+        active: apiKeys.hasEnvKey(),
+        masked: apiKeys.envKeyMasked(),
+        requestCount: u?.requestCount || 0,
+        inputTokens: u?.inputTokens || 0,
+        outputTokens: u?.outputTokens || 0,
+        lastUsedAt: u?.lastUsedAt || null,
+        source: 'env',
+      })
+    }
+    return c.json({ keys: rows, byKey })
   })
 
   app.post('/api-keys', async (c) => {
@@ -842,11 +921,12 @@ export function createAdminRoutes(
     const q = c.req.query('q') || undefined
     const pathQ = c.req.query('path') || undefined
     const apiStyle = c.req.query('apiStyle') || undefined
+    const apiKey = c.req.query('apiKey') || undefined
     const limit = Number(c.req.query('limit') || 100)
     return c.json({
       size: globalRequestLog.size,
       capacity: globalRequestLog.capacity,
-      entries: globalRequestLog.list({ q, path: pathQ, apiStyle, limit }),
+      entries: globalRequestLog.list({ q, path: pathQ, apiStyle, apiKey, limit }),
     })
   })
 

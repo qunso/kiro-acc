@@ -10,6 +10,8 @@ export interface RequestLogEntry {
   apiStyle: ApiStyle
   model?: string
   accountId?: string
+  apiKeyId?: string
+  apiKeyLabel?: string
   status: number
   success: boolean
   latencyMs: number
@@ -31,6 +33,8 @@ export class RequestLog {
       apiStyle: partial.apiStyle,
       model: partial.model,
       accountId: partial.accountId,
+      apiKeyId: partial.apiKeyId,
+      apiKeyLabel: partial.apiKeyLabel,
       status: partial.status,
       success: partial.success,
       latencyMs: partial.latencyMs,
@@ -43,19 +47,29 @@ export class RequestLog {
     return entry
   }
 
-  list(opts: { q?: string; path?: string; apiStyle?: string; limit?: number } = {}): RequestLogEntry[] {
+  list(opts: { q?: string; path?: string; apiStyle?: string; apiKey?: string; limit?: number } = {}): RequestLogEntry[] {
     const q = (opts.q || '').trim().toLowerCase()
     const pathF = (opts.path || '').trim().toLowerCase()
     const style = (opts.apiStyle || '').trim().toLowerCase()
+    const apiKeyF = (opts.apiKey || '').trim().toLowerCase()
     const limit = Math.min(Math.max(opts.limit ?? 100, 1), this.cap)
     let list = this.entries.slice().reverse()
     if (pathF) list = list.filter((e) => e.path.toLowerCase().includes(pathF))
     if (style) list = list.filter((e) => e.apiStyle === style)
+    if (apiKeyF) {
+      list = list.filter(
+        (e) =>
+          (e.apiKeyId || '').toLowerCase().includes(apiKeyF) ||
+          (e.apiKeyLabel || '').toLowerCase().includes(apiKeyF),
+      )
+    }
     if (q) {
       list = list.filter((e) =>
         JSON.stringify({
           model: e.model,
           accountId: e.accountId,
+          apiKeyId: e.apiKeyId,
+          apiKeyLabel: e.apiKeyLabel,
           error: e.error,
           path: e.path,
           status: e.status,

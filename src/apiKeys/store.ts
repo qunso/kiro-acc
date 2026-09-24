@@ -2,6 +2,16 @@ import { randomBytes, randomUUID } from 'node:crypto'
 import path from 'node:path'
 import { JsonStore } from '../storage/jsonStore.js'
 
+
+export const ENV_API_KEY_ID = 'env'
+export const ENV_API_KEY_LABEL = 'ENV API_KEY'
+
+export interface ResolvedApiKey {
+  id: string
+  label: string
+  source: 'env' | 'managed'
+}
+
 export interface ApiKeyRecord {
   id: string
   label: string
@@ -96,6 +106,19 @@ export class ApiKeyStore {
     if (this.keys.length === before) return false
     await this.persist()
     return true
+  }
+
+
+  /** Resolve a candidate secret to id/label for request logging & usage rollups. */
+  resolveKey(candidate: string): ResolvedApiKey | null {
+    const key = candidate.trim()
+    if (!key) return null
+    if (this.envKey && key === this.envKey) {
+      return { id: ENV_API_KEY_ID, label: ENV_API_KEY_LABEL, source: 'env' }
+    }
+    const rec = this.keys.find((k) => !k.revokedAt && k.key === key)
+    if (!rec) return null
+    return { id: rec.id, label: rec.label, source: 'managed' }
   }
 
   isValidKey(candidate: string): boolean {

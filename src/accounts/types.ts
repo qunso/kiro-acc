@@ -68,6 +68,8 @@ export interface AccountRecord {
   quotaDetail?: AccountQuotaDetail
   /** Cached subscription title from GetUsageLimits */
   subscriptionTitle?: string
+  /** Optional device/machine id from import or token metadata (display only; never spoofed). */
+  deviceId?: string
   stats?: AccountStats
   createdAt?: number
   updatedAt?: number
@@ -100,6 +102,9 @@ export interface UsageRecord {
   success: boolean
   error?: string
   responseTimeMs: number
+  /** Managed / env API key that authenticated the proxy request (optional, backward compatible). */
+  apiKeyId?: string
+  apiKeyLabel?: string
 }
 
 export interface UsageStore {

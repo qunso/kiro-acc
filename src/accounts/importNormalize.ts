@@ -30,6 +30,7 @@ const TOKEN_KEYS = {
   authMethod: ['authMethod', 'auth_method'],
   id: ['id'],
   expiresAt: ['expiresAt', 'expires_at', 'ExpiresAt'],
+  deviceId: ['deviceId', 'device_id', 'DeviceId', 'machineId', 'machine_id', 'MachineId', 'clientDeviceId', 'client_device_id'],
 } as const
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -169,6 +170,7 @@ function toCreateInput(raw: Record<string, unknown>, index: number): {
     outboundProxyUrl: asString(flat.outboundProxyUrl),
     outboundExitId: asString(flat.outboundExitId),
     outboundPoolId: asString(flat.outboundPoolId),
+    deviceId: asString(pick(flat, TOKEN_KEYS.deviceId)),
   }
   return { account: input }
 }

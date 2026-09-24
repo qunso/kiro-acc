@@ -27,6 +27,7 @@ import type { ExitsStore } from '../exits/store.js'
 import type { PoolsStore } from '../pools/store.js'
 import { rebindAccountExitAfterBan } from '../pools/rebind.js'
 import { recordProxyUsage } from './logUsage.js'
+import { apiKeyFromContext } from '../middleware/auth.js'
 import {
   maybeSignalAllQuotaExhausted,
   signalAccountSuspended,
@@ -171,6 +172,7 @@ export function chatCompletionsHandler(
           responseTime,
         )
         await recordProxyUsage(store, {
+          ...apiKeyFromContext(c),
           timestamp: Date.now(),
           accountId: account.id,
           model: result.usage.modelId || mapModelId(body.model),
@@ -198,6 +200,7 @@ export function chatCompletionsHandler(
         store.pool.recordError(account.id, errorType, status)
         void maybeSignalAllQuotaExhausted(store)
         await recordProxyUsage(store, {
+          ...apiKeyFromContext(c),
           timestamp: Date.now(),
           accountId: account.id,
           model: mapModelId(body.model),
@@ -329,6 +332,7 @@ async function handleStream(
           responseTime,
         )
         await recordProxyUsage(store, {
+          ...apiKeyFromContext(c),
           timestamp: Date.now(),
           accountId,
           model: usage.modelId || mapModelId(body.model),
@@ -354,6 +358,7 @@ async function handleStream(
         controller.enqueue(encoder.encode('data: [DONE]\n\n'))
         controller.close()
         await recordProxyUsage(store, {
+          ...apiKeyFromContext(c),
           timestamp: Date.now(),
           accountId,
           model: usage.modelId || mapModelId(body.model),
