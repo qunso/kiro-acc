@@ -22,6 +22,11 @@ import {
   type KiroUsage,
 } from './translator.js'
 import { getKiroIdeVersion } from './ideVersion.js'
+import {
+  estimateInputFromContextPercentage,
+  estimateTokensFromChars,
+  estimateTokensFromPayload,
+} from './tokenEstimate.js'
 
 const AWS_SDK_VERSION = '1.0.34'
 
@@ -135,19 +140,43 @@ function asNum(v: unknown): number | undefined {
   return undefined
 }
 
+/** Read a token field under camelCase or snake_case aliases. */
+function tokField(obj: Record<string, unknown>, ...keys: string[]): number | undefined {
+  for (const k of keys) {
+    const n = asNum(obj[k])
+    if (n !== undefined) return n
+  }
+  return undefined
+}
+
+export interface MergeKiroUsageResult {
+  /** True when metadata/messageMetadata tokenUsage supplied a real input count. */
+  hasRealInput: boolean
+  /** True when metadata supplied a real output count. */
+  hasRealOutput: boolean
+  /** Latest contextUsagePercentage seen (metadata or contextUsageEvent). */
+  contextUsagePercentage?: number
+}
+
 /**
  * Merge token/credit fields from a decoded Kiro AWS event-stream frame into `usage`.
  *
- * Real wire shape (Smithy ChatResponseStream): tokens live on
- * `metadataEvent` / `messageMetadataEvent`.tokenUsage with
- * `uncachedInputTokens` / `outputTokens` (plus optional cache* fields).
- * `meteringEvent.usage` is a **credit** count, not tokens.
+ * Real wire shape (Smithy ChatResponseStream + chaogei live captures):
+ * - `:event-type` `metadataEvent` / alias `messageMetadataEvent`
+ * - payload `.tokenUsage` with `uncachedInputTokens` / `outputTokens` /
+ *   cache* / optional `totalTokens` / `contextUsagePercentage`
+ * - `contextUsageEvent.contextUsagePercentage` for input fallback
+ * - `meteringEvent.usage` is a **credit** count, not tokens
+ *
+ * Snake_case aliases accepted (kiro.rs / alternate serializers).
  */
 export function mergeKiroUsageFromEvent(
   usage: KiroUsage,
   event: Record<string, unknown>,
   eventType = '',
-): void {
+): MergeKiroUsageResult {
+  const result: MergeKiroUsageResult = { hasRealInput: false, hasRealOutput: false }
+
   const nestedMeta =
     (event.messageMetadataEvent as Record<string, unknown> | undefined) ||
     (event.metadataEvent as Record<string, unknown> | undefined)
@@ -157,39 +186,44 @@ export function mergeKiroUsageFromEvent(
     Boolean(nestedMeta)
   const metaWrapper: Record<string, unknown> | null = isMetaType
     ? nestedMeta || event
-    : event.tokenUsage
+    : event.tokenUsage || event.token_usage
       ? event
       : null
 
   if (metaWrapper) {
-    const tuRaw = metaWrapper.tokenUsage
+    const tuRaw = metaWrapper.tokenUsage ?? metaWrapper.token_usage
     const tu =
       tuRaw && typeof tuRaw === 'object'
         ? (tuRaw as Record<string, unknown>)
-        : asNum(metaWrapper.uncachedInputTokens) !== undefined ||
-            asNum(metaWrapper.inputTokens) !== undefined ||
-            asNum(metaWrapper.outputTokens) !== undefined ||
-            asNum(metaWrapper.totalTokens) !== undefined
+        : tokField(metaWrapper, 'uncachedInputTokens', 'uncached_input_tokens', 'inputTokens', 'input_tokens') !==
+              undefined ||
+            tokField(metaWrapper, 'outputTokens', 'output_tokens') !== undefined ||
+            tokField(metaWrapper, 'totalTokens', 'total_tokens') !== undefined
           ? metaWrapper
           : null
 
     if (tu) {
-      const uncached = asNum(tu.uncachedInputTokens) ?? asNum(tu.inputTokens)
-      const cacheRead = asNum(tu.cacheReadInputTokens) ?? 0
-      const cacheWrite = asNum(tu.cacheWriteInputTokens) ?? 0
+      const uncached = tokField(tu, 'uncachedInputTokens', 'uncached_input_tokens', 'inputTokens', 'input_tokens')
+      const cacheRead = tokField(tu, 'cacheReadInputTokens', 'cache_read_input_tokens') ?? 0
+      const cacheWrite = tokField(tu, 'cacheWriteInputTokens', 'cache_write_input_tokens') ?? 0
       if (uncached !== undefined) {
         usage.inputTokens = uncached + cacheRead + cacheWrite
         if (cacheRead) usage.cacheReadTokens = cacheRead
         if (cacheWrite) usage.cacheWriteTokens = cacheWrite
+        if (usage.inputTokens > 0) result.hasRealInput = true
       } else if (cacheRead || cacheWrite) {
         usage.inputTokens = (usage.inputTokens || 0) + cacheRead + cacheWrite
         if (cacheRead) usage.cacheReadTokens = (usage.cacheReadTokens || 0) + cacheRead
         if (cacheWrite) usage.cacheWriteTokens = (usage.cacheWriteTokens || 0) + cacheWrite
+        if (usage.inputTokens > 0) result.hasRealInput = true
       }
-      const out = asNum(tu.outputTokens)
-      if (out !== undefined) usage.outputTokens = out
+      const out = tokField(tu, 'outputTokens', 'output_tokens')
+      if (out !== undefined) {
+        usage.outputTokens = out
+        result.hasRealOutput = true
+      }
       // Some frames only give totalTokens; recover input when still zero.
-      const total = asNum(tu.totalTokens)
+      const total = tokField(tu, 'totalTokens', 'total_tokens')
       if (
         total !== undefined &&
         (usage.inputTokens || 0) === 0 &&
@@ -197,34 +231,72 @@ export function mergeKiroUsageFromEvent(
         total >= (usage.outputTokens || 0)
       ) {
         usage.inputTokens = total - (usage.outputTokens || 0)
+        if (usage.inputTokens > 0) result.hasRealInput = true
+      }
+      const pct = tokField(tu, 'contextUsagePercentage', 'context_usage_percentage')
+      if (pct !== undefined) result.contextUsagePercentage = pct
+    }
+  }
+
+  // Legacy usageEvent with explicit token fields (NOT metering credits / NOT context %)
+  const usageBlock = event.usageEvent
+  if (usageBlock && typeof usageBlock === 'object') {
+    const b = usageBlock as Record<string, unknown>
+    const inTok = tokField(b, 'inputTokens', 'input_tokens')
+    const outTok = tokField(b, 'outputTokens', 'output_tokens')
+    if (inTok !== undefined) {
+      usage.inputTokens = inTok
+      if (inTok > 0) result.hasRealInput = true
+    }
+    if (outTok !== undefined) {
+      usage.outputTokens = outTok
+      result.hasRealOutput = true
+    }
+    const nested = b.tokenUsage ?? b.token_usage
+    if (nested && typeof nested === 'object') {
+      const nestedResult = mergeKiroUsageFromEvent(usage, { tokenUsage: nested }, 'metadataEvent')
+      if (nestedResult.hasRealInput) result.hasRealInput = true
+      if (nestedResult.hasRealOutput) result.hasRealOutput = true
+      if (nestedResult.contextUsagePercentage !== undefined) {
+        result.contextUsagePercentage = nestedResult.contextUsagePercentage
       }
     }
   }
 
-  // Legacy / alternate shapes that actually carry token fields
-  for (const key of ['usageEvent', 'meteringEvent', 'contextUsageEvent'] as const) {
-    const block = event[key]
-    if (!block || typeof block !== 'object') continue
-    const b = block as Record<string, unknown>
-    const inTok = asNum(b.inputTokens)
-    const outTok = asNum(b.outputTokens)
-    if (inTok !== undefined) usage.inputTokens = inTok
-    if (outTok !== undefined) usage.outputTokens = outTok
-    const nested = b.tokenUsage
-    if (nested && typeof nested === 'object') {
-      mergeKiroUsageFromEvent(usage, { tokenUsage: nested }, 'metadataEvent')
+  // contextUsageEvent — percentage only; caller may reverse-estimate input
+  if (eventType === 'contextUsageEvent' || event.contextUsageEvent) {
+    const ctx =
+      (event.contextUsageEvent as Record<string, unknown> | undefined) ||
+      (eventType === 'contextUsageEvent' ? event : null)
+    if (ctx) {
+      const pct = tokField(ctx, 'contextUsagePercentage', 'context_usage_percentage')
+      if (pct !== undefined) result.contextUsagePercentage = pct
     }
   }
 
   // Top-level legacy token fields (some proxies flatten the event)
   if (eventType !== 'assistantResponseEvent' && eventType !== 'toolUseEvent') {
-    const inTok = asNum(event.inputTokens)
-    const outTok = asNum(event.outputTokens)
-    if (inTok !== undefined && !event.metadataEvent && !event.messageMetadataEvent && !event.tokenUsage) {
+    const inTok = tokField(event, 'inputTokens', 'input_tokens')
+    const outTok = tokField(event, 'outputTokens', 'output_tokens')
+    if (
+      inTok !== undefined &&
+      !event.metadataEvent &&
+      !event.messageMetadataEvent &&
+      !event.tokenUsage &&
+      !event.token_usage
+    ) {
       usage.inputTokens = inTok
+      if (inTok > 0) result.hasRealInput = true
     }
-    if (outTok !== undefined && !event.metadataEvent && !event.messageMetadataEvent && !event.tokenUsage) {
+    if (
+      outTok !== undefined &&
+      !event.metadataEvent &&
+      !event.messageMetadataEvent &&
+      !event.tokenUsage &&
+      !event.token_usage
+    ) {
       usage.outputTokens = outTok
+      result.hasRealOutput = true
     }
   }
 
@@ -237,11 +309,25 @@ export function mergeKiroUsageFromEvent(
     const credits = asNum(metering.credits) ?? asNum(metering.usage)
     if (credits !== undefined) usage.credits = credits
   }
+
+  return result
 }
 
-function extractEventType(headers: Uint8Array): string {
+export function extractEventType(headers: Uint8Array): string {
   // AWS event-stream headers: [nameLen:1][name][valueType:1][valueLen:2][value]...
+  // Must skip non-string header value types — breaking early drops :event-type
+  // when it appears after e.g. a timestamp/UUID header (chaogei-proven fix).
   let offset = 0
+  const skipSizes: Record<number, number> = {
+    0: 0,
+    1: 0,
+    2: 1,
+    3: 2,
+    4: 4,
+    5: 8,
+    8: 8,
+    9: 16,
+  }
   while (offset < headers.length) {
     const nameLen = headers[offset]!
     offset += 1
@@ -256,13 +342,22 @@ function extractEventType(headers: Uint8Array): string {
       if (offset + 2 > headers.length) break
       const valueLen = new DataView(headers.buffer, headers.byteOffset + offset, 2).getUint16(0, false)
       offset += 2
+      if (offset + valueLen > headers.length) break
       const value = new TextDecoder().decode(headers.slice(offset, offset + valueLen))
       offset += valueLen
       if (name === ':event-type' || name === 'event-type') return value
-    } else {
-      // skip unknown
-      break
+      continue
     }
+    if (valueType === 6) {
+      // byte array
+      if (offset + 2 > headers.length) break
+      const len = new DataView(headers.buffer, headers.byteOffset + offset, 2).getUint16(0, false)
+      offset += 2 + len
+      continue
+    }
+    const skip = skipSizes[valueType]
+    if (skip === undefined) break
+    offset += skip
   }
   return ''
 }
@@ -272,12 +367,21 @@ export type StreamChunkHandler = (
   toolUse?: KiroToolUse,
 ) => void | Promise<void>
 
+interface ParseEventStreamOptions {
+  signal?: AbortSignal
+  /** Model id for contextUsagePercentage → inputTokens reverse estimate. */
+  modelId?: string
+  /** Serialized request payload; seeds inputTokens when metadata absent. */
+  payloadStr?: string
+}
+
 async function parseEventStream(
   body: ReadableStream<Uint8Array>,
   onChunk: StreamChunkHandler,
   onComplete: (usage: KiroUsage) => void,
-  signal?: AbortSignal,
+  options: ParseEventStreamOptions = {},
 ): Promise<void> {
+  const { signal, modelId, payloadStr } = options
   const reader = body.getReader()
   let buffer = new Uint8Array(0)
   const usage: KiroUsage = {
@@ -288,6 +392,13 @@ async function parseEventStream(
   let outputChars = 0
   let currentTool: { toolUseId: string; name: string; inputBuffer: string } | null = null
   const processed = new Set<string>()
+  // Priority: real tokenUsage > contextUsage% × window > payload estimate
+  let hasRealInput = false
+  let hasRealOutput = false
+
+  if (payloadStr) {
+    usage.inputTokens = estimateTokensFromPayload(payloadStr)
+  }
 
   const abort = () => {
     reader.cancel().catch(() => undefined)
@@ -383,9 +494,22 @@ async function parseEventStream(
               }
             }
 
-            // Tokens: metadataEvent.tokenUsage (uncachedInputTokens / outputTokens).
-            // meteringEvent.usage is credits — see mergeKiroUsageFromEvent.
-            mergeKiroUsageFromEvent(usage, event, eventType)
+            // Tokens: metadataEvent/messageMetadataEvent.tokenUsage;
+            // contextUsageEvent % → input fallback when metadata absent.
+            const merged = mergeKiroUsageFromEvent(usage, event, eventType)
+            if (merged.hasRealInput) hasRealInput = true
+            if (merged.hasRealOutput) hasRealOutput = true
+            if (
+              !hasRealInput &&
+              merged.contextUsagePercentage !== undefined &&
+              merged.contextUsagePercentage > 0
+            ) {
+              const reverse = estimateInputFromContextPercentage(
+                merged.contextUsagePercentage,
+                modelId,
+              )
+              if (reverse > 0) usage.inputTokens = reverse
+            }
 
             if (eventType === 'error' || event.message === 'error' || event.reason) {
               const reason = String(event.reason || event.message || 'upstream error')
@@ -416,8 +540,13 @@ async function parseEventStream(
       })
     }
 
-    if (!usage.outputTokens && outputChars > 0) {
-      usage.outputTokens = Math.max(1, Math.round(outputChars / 4))
+    if (!hasRealOutput && !usage.outputTokens && outputChars > 0) {
+      usage.outputTokens = estimateTokensFromChars(outputChars, 'output')
+    }
+    // If metadata never arrived and contextUsage never fired, keep payload seed
+    // (already set). If somehow still 0, last-resort char estimate from payload.
+    if (!hasRealInput && (!usage.inputTokens || usage.inputTokens <= 0) && payloadStr) {
+      usage.inputTokens = estimateTokensFromPayload(payloadStr)
     }
     onComplete(usage)
   } finally {
@@ -494,7 +623,7 @@ export async function callKiroApiStream(
         res.body,
         onChunk,
         (u) => onComplete({ ...u, modelId: sentModelId }),
-        options.signal,
+        { signal: options.signal, modelId: sentModelId, payloadStr: body },
       )
       return
     } catch (err) {
