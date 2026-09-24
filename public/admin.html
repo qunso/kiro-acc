@@ -830,7 +830,13 @@ async function runChatTest() {
     toast(e.message || String(e), true);
   }
 }
- = window.innerWidth;
+function positionMenu(details) {
+  const panel = details.querySelector('.menu-panel');
+  const summary = details.querySelector('summary');
+  if (!panel || !summary) return;
+  const r = summary.getBoundingClientRect();
+  const gap = 4;
+  const vw = window.innerWidth;
   const vh = window.innerHeight;
   const sheet = vw <= 860;
   panel.classList.toggle('menu-panel-sheet', sheet);
