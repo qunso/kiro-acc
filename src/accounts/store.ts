@@ -261,6 +261,18 @@ export class AccountStore {
     this.accounts.set(id, { ...existing, ...snap, updatedAt: Date.now() })
   }
 
+  async applyQuota(
+    id: string,
+    used: number,
+    limit: number,
+    resetAt?: number,
+  ): Promise<AccountRecord | undefined> {
+    this.pool.updateQuota(id, used, limit, resetAt)
+    this.syncFromPool(id)
+    await this.flush()
+    return this.get(id)
+  }
+
   async flush(): Promise<void> {
     await this.persist()
   }

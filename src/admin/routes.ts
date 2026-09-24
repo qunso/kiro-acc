@@ -7,6 +7,7 @@ import {
   refreshAccountToken,
   resolveProfileArn,
 } from '../kiro/auth.js'
+import { getUsageLimits, UsageLimitsError } from '../kiro/usageLimits.js'
 import { callKiroApi, KiroApiError } from '../kiro/client.js'
 import { mapModelId, openaiToKiro, PUBLIC_MODELS } from '../kiro/translator.js'
 import { adminAuth } from '../middleware/auth.js'
@@ -867,7 +868,7 @@ export function createAdminRoutes(
     return c.json({
       ...summary,
       rows,
-      note: 'subscriptionType is derived from provider/authMethod; quota from local pool metering; no remote subscription upgrade API.',
+      note: 'subscriptionType is derived from provider/authMethod; quota from GetUsageLimits CREDIT breakdown (refresh-subscription); no remote subscription upgrade API.',
       poolQuota: store.pool.getQuotaStatus(),
       usageTotals: usage.totals,
     })
@@ -889,12 +890,38 @@ export function createAdminRoutes(
     })
     store.pool.updateAccount(id, { isAvailable: true })
     await store.flush()
+
+    let usageError: string | undefined
+    let usageMeta: Record<string, unknown> | undefined
+    try {
+      const live = store.get(id)!
+      const quota = await getUsageLimits(live)
+      await store.applyQuota(id, quota.used, quota.limit, quota.resetAt)
+      usageMeta = {
+        used: quota.used,
+        limit: quota.limit,
+        resetAt: quota.resetAt ?? null,
+        subscriptionTitle: quota.subscriptionTitle ?? null,
+        endpoint: quota.endpoint,
+      }
+    } catch (err) {
+      usageError =
+        err instanceof UsageLimitsError
+          ? err.message + (err.body ? `: ${err.body.slice(0, 180)}` : '')
+          : err instanceof Error
+            ? err.message
+            : String(err)
+    }
+
     const updated = store.get(id)!
     const row = buildSubscriptionSummary([updated]).rows[0]
     const usage = await store.getUsage()
     return c.json({
       ok: true,
       refreshed: true,
+      usageFetched: !usageError,
+      usageError: usageError || null,
+      usage: usageMeta || null,
       account: withExit(updated),
       subscription: { ...row, persistedUsage: usageByAccount(usage)[id] || null },
     })
@@ -1275,9 +1302,16 @@ export function createAdminRoutes(
 
   app.get('/chat-models', (c) => {
     const custom = modelMap?.get() || {}
+    const models = PUBLIC_MODELS.map((m) => m.id)
+    const customAliases = Object.keys(custom)
+    const all = [...models]
+    for (const a of customAliases) {
+      if (a && !all.includes(a)) all.push(a)
+    }
     return c.json({
-      models: PUBLIC_MODELS.map((m) => m.id),
-      customAliases: Object.keys(custom),
+      models,
+      customAliases,
+      all,
     })
   })
 
@@ -1367,6 +1401,15 @@ export function createAdminRoutes(
         },
         { path: '/admin/chat-test', apiStyle: 'openai', status: 200 },
       )
+      // Best-effort: refresh CREDIT quota after a successful smoke chat
+      let quotaSnap: { used: number; limit: number; resetAt?: number } | undefined
+      try {
+        const q = await getUsageLimits(store.get(account.id) || account)
+        await store.applyQuota(account.id, q.used, q.limit, q.resetAt)
+        quotaSnap = { used: q.used, limit: q.limit, resetAt: q.resetAt }
+      } catch {
+        /* ignore — chat succeeded */
+      }
       return c.json({
         ok: true,
         accountId: account.id,
@@ -1378,6 +1421,7 @@ export function createAdminRoutes(
           outputTokens: result.usage.outputTokens,
           credits: result.usage.credits,
         },
+        quota: quotaSnap || null,
       })
     } catch (err) {
       const latencyMs = Date.now() - started

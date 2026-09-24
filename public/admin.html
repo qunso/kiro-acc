@@ -128,6 +128,19 @@ pre.docs{background:#0d1218;border:1px solid var(--line);border-radius:10px;padd
 .chat-test-out{background:#0d1218;border:1px solid var(--line);border-radius:10px;padding:12px;min-height:110px;white-space:pre-wrap;word-break:break-word;font-family:ui-monospace,Menlo,monospace;font-size:12px;max-height:340px;overflow:auto}
 .chat-test-meta{font-size:12px;margin-top:6px}
 .btn-sm{padding:6px 10px;font-size:12px;min-height:32px}
+.modal-overlay{position:fixed;inset:0;z-index:80;background:rgba(4,8,14,.72);display:none;align-items:flex-start;justify-content:center;padding:48px 16px 24px;overflow:auto}
+.modal-overlay.open{display:flex}
+.modal{width:min(720px,100%);background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;box-shadow:0 20px 60px rgba(0,0,0,.55);margin:auto}
+.modal-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:8px}
+.modal-head h2{margin:0}
+.quick-chips{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
+.quick-chips button{font-size:12px;padding:6px 10px;border-radius:999px;background:#102033;border:1px solid #243044;color:var(--muted)}
+.quick-chips button:hover,.quick-chips button:focus{border-color:var(--acc);color:var(--acc)}
+.quick-chips button.active{border-color:var(--acc);color:var(--acc);background:#15263a}
+@media(max-width:700px){
+  .modal-overlay{padding:12px}
+  .modal{padding:12px}
+}
 </style>
 </head>
 <body>
@@ -249,22 +262,6 @@ pre.docs{background:#0d1218;border:1px solid var(--line);border-radius:10px;padd
   <section id="tab-accounts" hidden>
     <div class="card stats" id="accountStats"></div>
     <div class="card">
-      <h2>测试聊天</h2>
-      <p class="muted">管理端直接指定账号发起一次补全（走账号已有出口绑定），无需代理 API Key。</p>
-      <div class="row" style="margin-bottom:8px">
-        <label class="muted">账号</label>
-        <select id="chatAccount" style="min-width:220px"><option value="">选择账号</option></select>
-        <label class="muted">模型</label>
-        <select id="chatModel" style="min-width:180px"><option value="">加载中…</option></select>
-      </div>
-      <textarea id="chatMessage" placeholder="输入测试消息…" style="min-height:72px"></textarea>
-      <div class="row" style="margin-top:8px">
-        <button class="primary" id="chatSend">发送</button>
-        <span class="muted chat-test-meta" id="chatStatus">就绪</span>
-      </div>
-      <div class="chat-test-out" id="chatOut" style="margin-top:10px">（响应将显示在这里）</div>
-    </div>
-    <div class="card">
       <p class="muted">分组 / 标签点「编辑分组/标签」写入；批量操作勾选后执行。出口 ID/IP 只读，由池绑定写入。无 IDE 切号。</p>
       <div class="row" style="margin-bottom:10px">
         <input id="accountFilter" placeholder="搜索 标签/分组/邮箱/出口" style="width:240px"/>
@@ -273,6 +270,7 @@ pre.docs{background:#0d1218;border:1px solid var(--line);border-radius:10px;padd
         <label class="muted" style="display:inline-flex;align-items:center;gap:6px"><input type="checkbox" id="checkAllVisible" title="全选可见"/> 全选可见</label>
         <button id="selectAllVisible">全选可见</button>
         <button id="clearSelected">清空勾选</button>
+        <button id="openChatTest" class="primary">测试聊天</button>
       </div>
       <div class="batch-bar">
         <span class="muted" id="selectedCount">已选 0</span>
@@ -515,6 +513,40 @@ pre.docs{background:#0d1218;border:1px solid var(--line);border-radius:10px;padd
 </main>
 </div>
 </div>
+
+<div class="modal-overlay" id="chatModal" role="dialog" aria-modal="true" aria-labelledby="chatModalTitle" hidden>
+  <div class="modal" role="document">
+    <div class="modal-head">
+      <div>
+        <h2 id="chatModalTitle">测试聊天</h2>
+        <p class="muted" style="margin:4px 0 0">管理端直接指定账号发起一次补全（走账号已有出口绑定），无需代理 API Key。</p>
+      </div>
+      <button type="button" id="chatModalClose" class="ghost" title="关闭">关闭</button>
+    </div>
+    <div class="row" style="margin-bottom:8px">
+      <label class="muted">账号</label>
+      <select id="chatAccount" style="min-width:220px;flex:1"><option value="">选择账号</option></select>
+      <label class="muted">模型</label>
+      <select id="chatModel" style="min-width:180px;flex:1"><option value="">加载中…</option></select>
+    </div>
+    <div>
+      <div class="muted" style="font-size:12px;margin-bottom:4px">常用测试（点击填入消息，可再编辑后发送）</div>
+      <div class="quick-chips" id="chatQuickChips">
+        <button type="button" data-chat-prompt="你好">你好</button>
+        <button type="button" data-chat-prompt="用一句话介绍你自己">用一句话介绍你自己</button>
+        <button type="button" data-chat-prompt="1+1=?">1+1=?</button>
+        <button type="button" data-chat-prompt="写一个 3 行 Python hello">写一个 3 行 Python hello</button>
+        <button type="button" data-chat-prompt="当前日期是什么">当前日期是什么</button>
+      </div>
+    </div>
+    <textarea id="chatMessage" placeholder="输入测试消息…" style="min-height:72px"></textarea>
+    <div class="row" style="margin-top:8px">
+      <button class="primary" id="chatSend">发送</button>
+      <span class="muted chat-test-meta" id="chatStatus">就绪</span>
+    </div>
+    <div class="chat-test-out" id="chatOut" style="margin-top:10px">（响应将显示在这里）</div>
+  </div>
+</div>
 <div class="toast" id="toast"></div>
 <script>
 const $ = (id) => document.getElementById(id);
@@ -636,6 +668,12 @@ function metaEditor(a) {
       '<button type="button" class="primary btn-sm" data-save-meta="'+esc(a.id)+'">保存</button>'+
     '</div></details>';
 }
+const FALLBACK_CHAT_MODELS = [
+  'claude-opus-5','claude-sonnet-5','claude-opus-4.8','claude-opus-4.7','claude-opus-4.6',
+  'claude-opus-4.5','claude-sonnet-4.6','claude-sonnet-4.5','claude-sonnet-4','claude-haiku-4.5',
+  'gpt-5.6-sol','gpt-5.6-terra','gpt-5.6-luna','deepseek-3.2','minimax-m2.5','minimax-m2.1',
+  'glm-5','qwen3-coder-next','auto','gpt-4o'
+];
 function fillChatAccountSelect(preserve) {
   const sel = $('chatAccount');
   if (!sel) return;
@@ -645,23 +683,51 @@ function fillChatAccountSelect(preserve) {
   ).join('');
   if (prev) sel.value = prev;
 }
+function applyChatModelOptions(all) {
+  const sel = $('chatModel');
+  if (!sel) return;
+  const list = (all && all.length) ? all.slice() : FALLBACK_CHAT_MODELS.slice();
+  const prev = sel.value;
+  sel.innerHTML = list.map(m => '<option value="'+esc(m)+'">'+esc(m)+'</option>').join('');
+  if (prev && list.includes(prev)) sel.value = prev;
+  else if (list.includes('claude-haiku-4.5')) sel.value = 'claude-haiku-4.5';
+  else sel.selectedIndex = 0;
+}
 async function loadChatModels() {
   const sel = $('chatModel');
   if (!sel) return;
+  // Prefer previously loaded builtin list immediately so the select is never empty
+  const builtin = (state.builtinModels || []).map(m => (m && m.id) ? m.id : m).filter(Boolean);
+  if (builtin.length) applyChatModelOptions(builtin);
+  else applyChatModelOptions(FALLBACK_CHAT_MODELS);
   try {
     const r = await api('/chat-models');
-    const models = (r.models && r.models.length) ? r.models : [];
-    const aliases = r.customAliases || [];
-    const all = [...models];
-    aliases.forEach(a => { if (a && !all.includes(a)) all.push(a); });
-    const prev = sel.value;
-    sel.innerHTML = all.map(m => '<option value="'+esc(m)+'">'+esc(m)+'</option>').join('') ||
-      '<option value="claude-haiku-4.5">claude-haiku-4.5</option>';
-    if (prev && all.includes(prev)) sel.value = prev;
-    else if (all.includes('claude-haiku-4.5')) sel.value = 'claude-haiku-4.5';
+    const models = (r.all && r.all.length) ? r.all
+      : (r.models && r.models.length) ? r.models.concat(r.customAliases || [])
+      : [];
+    const all = [];
+    models.forEach(m => { if (m && !all.includes(m)) all.push(m); });
+    (r.customAliases || []).forEach(a => { if (a && !all.includes(a)) all.push(a); });
+    applyChatModelOptions(all.length ? all : FALLBACK_CHAT_MODELS);
   } catch (e) {
-    sel.innerHTML = '<option value="claude-haiku-4.5">claude-haiku-4.5</option>';
+    applyChatModelOptions(builtin.length ? builtin : FALLBACK_CHAT_MODELS);
   }
+}
+function closeChatModal() {
+  const ov = $('chatModal');
+  if (!ov) return;
+  ov.classList.remove('open');
+  ov.hidden = true;
+}
+async function openChatModal(accountId) {
+  const ov = $('chatModal');
+  if (!ov) return;
+  fillChatAccountSelect(accountId || undefined);
+  if (accountId) $('chatAccount').value = accountId;
+  ov.hidden = false;
+  ov.classList.add('open');
+  await loadChatModels();
+  $('chatMessage').focus();
 }
 async function runChatTest() {
   const accountId = $('chatAccount').value;
@@ -682,6 +748,7 @@ async function runChatTest() {
       $('chatStatus').textContent = '成功 · ' + (r.model || model) + ' · ' + latency + ' ms';
       $('chatOut').textContent = r.text || '（空响应）';
       toast('聊天测试成功 · ' + latency + ' ms');
+      if (r.quota && r.quota.limit > 0) refresh();
     } else {
       $('chatStatus').textContent = '失败 · ' + latency + ' ms';
       $('chatOut').textContent = (r.error || '未知错误') + (r.text ? ('\n\n' + r.text) : '');
@@ -802,6 +869,7 @@ function renderAccounts() {
       '<div>'+metaChips(a)+' '+metaEditor(a)+'</div>'+
       '<div class="ac-actions">'+
         '<button type="button" class="btn-sm" data-chat-acc="'+esc(a.id)+'">测试聊天</button>'+
+        '<button type="button" class="btn-sm" data-refresh-quota="'+esc(a.id)+'">刷新积分</button>'+
         actionMenu([
           {label:'绑定', attrs:'data-bind="'+esc(a.id)+'"'},
           {label:'换绑', attrs:'data-rebind="'+esc(a.id)+'"'},
@@ -1269,6 +1337,22 @@ $('exitFilter').oninput = () => renderExits();
 $('exitSort').onchange = () => renderExits();
 $('accountFilter').oninput = () => renderAccounts();
 $('chatSend').onclick = () => runChatTest();
+$('openChatTest') && ($('openChatTest').onclick = () => openChatModal());
+$('chatModalClose') && ($('chatModalClose').onclick = () => closeChatModal());
+$('chatModal') && $('chatModal').addEventListener('click', (ev) => {
+  if (ev.target === $('chatModal')) closeChatModal();
+});
+document.addEventListener('keydown', (ev) => {
+  if (ev.key === 'Escape' && $('chatModal') && $('chatModal').classList.contains('open')) closeChatModal();
+});
+$('chatQuickChips') && $('chatQuickChips').addEventListener('click', (ev) => {
+  const btn = ev.target.closest('[data-chat-prompt]');
+  if (!btn) return;
+  $('chatQuickChips').querySelectorAll('button').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  $('chatMessage').value = btn.getAttribute('data-chat-prompt') || '';
+  $('chatMessage').focus();
+});
 $('filterGroup').onchange = () => renderAccounts();
 $('filterTag').onchange = () => renderAccounts();
 $('exitPickFilter').oninput = () => renderExitChecks();
@@ -1389,11 +1473,17 @@ document.body.addEventListener('click', async (ev) => {
       const tip = r.assignedExit ? ((r.assignedExit.exitId||'') + (r.assignedExit.exitIp ? ' · ' + r.assignedExit.exitIp : '')) : (r.exitId||'');
       toast('已换绑 ' + tip); refresh();
     } else if (t.dataset.chatAcc) {
-      fillChatAccountSelect(t.dataset.chatAcc);
-      $('chatAccount').value = t.dataset.chatAcc;
       showTab('accounts');
-      $('chatMessage').focus();
+      openChatModal(t.dataset.chatAcc);
       toast('已选账号，可发送测试消息');
+    } else if (t.dataset.refreshQuota) {
+      try {
+        const r = await api('/accounts/' + encodeURIComponent(t.dataset.refreshQuota) + '/refresh-subscription', { method: 'POST' });
+        if (r.usageFetched) toast('已刷新积分 ' + (r.usage ? (Math.max(0,(r.usage.limit||0)-(r.usage.used||0)) + ' / ' + r.usage.limit) : ''));
+        else toast(r.usageError || 'Token 已刷新，但用量拉取失败', true);
+        refresh();
+        if (state.subs) loadSubs();
+      } catch (e) { toast(e.message || String(e), true); }
     } else if (t.dataset.probe) {
       $('probeAccount').value = t.dataset.probe;
       showTab('probe');
@@ -1431,8 +1521,17 @@ document.body.addEventListener('click', async (ev) => {
       toast('已删除'); refresh();
 
     } else if (t.dataset.refreshSub) {
-      await api('/accounts/' + encodeURIComponent(t.dataset.refreshSub) + '/refresh-subscription', { method: 'POST' });
-      toast('订阅/用量已刷新'); loadSubs(); refresh();
+      try {
+        const r = await api('/accounts/' + encodeURIComponent(t.dataset.refreshSub) + '/refresh-subscription', { method: 'POST' });
+        if (r.usageFetched) {
+          const u = r.usage || {};
+          const remain = Math.max(0, (u.limit||0) - (u.used||0));
+          toast('订阅/用量已刷新 · 剩余 ' + remain + ' / ' + (u.limit||0));
+        } else {
+          toast(r.usageError || 'Token 已刷新，用量拉取失败', true);
+        }
+        loadSubs(); refresh();
+      } catch (e) { toast(e.message || String(e), true); }
     } else if (t.dataset.whTest) {
       const r = await api('/webhooks/' + encodeURIComponent(t.dataset.whTest) + '/test', { method: 'POST', body: '{}' });
       toast(r.ok ? '测试发送成功' : ('测试失败: '+(r.error||'')), !r.ok); loadWebhooks();

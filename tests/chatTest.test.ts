@@ -25,6 +25,22 @@ vi.mock('../src/kiro/client.js', async (importOriginal) => {
   }
 })
 
+
+vi.mock('../src/kiro/usageLimits.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/kiro/usageLimits.js')>()
+  return {
+    ...actual,
+    getUsageLimits: vi.fn(async () => ({
+      used: 10,
+      limit: 100,
+      resetAt: Date.now() + 86400_000,
+      subscriptionTitle: 'Kiro Free',
+      raw: {},
+      endpoint: 'https://q.us-east-1.amazonaws.com',
+    })),
+  }
+})
+
 import { callKiroApi } from '../src/kiro/client.js'
 import { createServer } from '../src/server.js'
 
@@ -66,6 +82,8 @@ describe('admin chat-test', () => {
     expect(res.status).toBe(200)
     const j = await res.json()
     expect(j.models).toEqual(expect.arrayContaining(['claude-haiku-4.5', 'claude-opus-5']))
+    expect(j.all).toEqual(expect.arrayContaining(['claude-haiku-4.5', 'claude-opus-5']))
+    expect(j.all.length).toBeGreaterThanOrEqual(j.models.length)
   })
 
   it('validates body and pins account through callKiroApi', async () => {
