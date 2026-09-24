@@ -280,6 +280,8 @@ async function handleStream(
           async (text, toolUse) => {
             if (toolUse) {
               toolUses.push(toolUse)
+              const args = JSON.stringify(toolUse.input)
+              contentLen += args.length
               send(
                 createOpenaiStreamChunk(id, body.model, {
                   tool_calls: [
@@ -289,7 +291,7 @@ async function handleStream(
                       type: 'function',
                       function: {
                         name: toolUse.name,
-                        arguments: JSON.stringify(toolUse.input),
+                        arguments: args,
                       },
                     },
                   ],
@@ -326,11 +328,16 @@ async function handleStream(
         controller.close()
 
         const responseTime = Date.now() - started
+        // Mirror SSE finish-chunk fallback: stream often omits outputTokens
+        // (especially tool-call turns); never persist 0/0 when we streamed body.
+        const outTokens =
+          usage.outputTokens || (contentLen > 0 ? Math.max(1, Math.round(contentLen / 4)) : 0)
+        const inTokens = usage.inputTokens
         store.pool.recordSuccess(
           accountId,
-          usage.inputTokens + usage.outputTokens,
-          usage.inputTokens,
-          usage.outputTokens,
+          inTokens + outTokens,
+          inTokens,
+          outTokens,
           responseTime,
         )
         await recordProxyUsage(store, {
@@ -338,8 +345,8 @@ async function handleStream(
           timestamp: Date.now(),
           accountId,
           model: usage.modelId || mapModelId(body.model),
-          inputTokens: usage.inputTokens,
-          outputTokens: usage.outputTokens,
+          inputTokens: inTokens,
+          outputTokens: outTokens,
           success: true,
           responseTimeMs: responseTime,
         }, { path: '/v1/chat/completions', apiStyle: 'openai', status: 200 })

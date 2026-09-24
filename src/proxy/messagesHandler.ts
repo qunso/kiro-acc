@@ -267,11 +267,13 @@ async function handleClaudeStream(
         controller.close()
 
         const responseTime = Date.now() - started
+        const inTokens = usage.inputTokens
+        const outTokens = outputTokens
         store.pool.recordSuccess(
           accountId,
-          usage.inputTokens + usage.outputTokens,
-          usage.inputTokens,
-          usage.outputTokens,
+          inTokens + outTokens,
+          inTokens,
+          outTokens,
           responseTime,
         )
         await recordProxyUsage(store, {
@@ -279,8 +281,8 @@ async function handleClaudeStream(
           timestamp: Date.now(),
           accountId,
           model: usage.modelId || mapModelId(body.model),
-          inputTokens: usage.inputTokens,
-          outputTokens: usage.outputTokens,
+          inputTokens: inTokens,
+          outputTokens: outTokens,
           success: true,
           responseTimeMs: responseTime,
         }, { path: '/v1/messages', apiStyle: 'anthropic', status: 200 })

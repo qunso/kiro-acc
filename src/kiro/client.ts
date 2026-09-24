@@ -125,6 +125,94 @@ async function doFetch(
   return fetch(url, init)
 }
 
+
+function asNum(v: unknown): number | undefined {
+  return typeof v === 'number' && Number.isFinite(v) ? v : undefined
+}
+
+/**
+ * Merge token/credit fields from a decoded Kiro AWS event-stream frame into `usage`.
+ *
+ * Real wire shape (Smithy ChatResponseStream): tokens live on
+ * `metadataEvent.tokenUsage` with `uncachedInputTokens` / `outputTokens`
+ * (plus optional cache* fields). `meteringEvent.usage` is a **credit** count,
+ * not tokens — do not treat it as input/output tokens.
+ */
+export function mergeKiroUsageFromEvent(
+  usage: KiroUsage,
+  event: Record<string, unknown>,
+  eventType = '',
+): void {
+  const metaWrapper =
+    eventType === 'metadataEvent' || event.metadataEvent
+      ? ((event.metadataEvent as Record<string, unknown> | undefined) || event)
+      : event.tokenUsage
+        ? event
+        : null
+
+  if (metaWrapper) {
+    const tuRaw = metaWrapper.tokenUsage
+    const tu =
+      tuRaw && typeof tuRaw === 'object'
+        ? (tuRaw as Record<string, unknown>)
+        : asNum(metaWrapper.uncachedInputTokens) !== undefined ||
+            asNum(metaWrapper.inputTokens) !== undefined ||
+            asNum(metaWrapper.outputTokens) !== undefined
+          ? metaWrapper
+          : null
+
+    if (tu) {
+      const uncached = asNum(tu.uncachedInputTokens) ?? asNum(tu.inputTokens)
+      const cacheRead = asNum(tu.cacheReadInputTokens) ?? 0
+      const cacheWrite = asNum(tu.cacheWriteInputTokens) ?? 0
+      if (uncached !== undefined) {
+        usage.inputTokens = uncached + cacheRead + cacheWrite
+        if (cacheRead) usage.cacheReadTokens = cacheRead
+        if (cacheWrite) usage.cacheWriteTokens = cacheWrite
+      } else if (cacheRead || cacheWrite) {
+        usage.inputTokens = (usage.inputTokens || 0) + cacheRead + cacheWrite
+        if (cacheRead) usage.cacheReadTokens = (usage.cacheReadTokens || 0) + cacheRead
+        if (cacheWrite) usage.cacheWriteTokens = (usage.cacheWriteTokens || 0) + cacheWrite
+      }
+      const out = asNum(tu.outputTokens)
+      if (out !== undefined) usage.outputTokens = out
+    }
+  }
+
+  // Legacy / alternate shapes that actually carry token fields
+  for (const key of ['usageEvent', 'meteringEvent', 'contextUsageEvent'] as const) {
+    const block = event[key]
+    if (!block || typeof block !== 'object') continue
+    const b = block as Record<string, unknown>
+    const inTok = asNum(b.inputTokens)
+    const outTok = asNum(b.outputTokens)
+    if (inTok !== undefined) usage.inputTokens = inTok
+    if (outTok !== undefined) usage.outputTokens = outTok
+    const nested = b.tokenUsage
+    if (nested && typeof nested === 'object') {
+      mergeKiroUsageFromEvent(usage, { tokenUsage: nested }, 'metadataEvent')
+    }
+  }
+
+  // Top-level legacy token fields (some proxies flatten the event)
+  if (eventType !== 'assistantResponseEvent' && eventType !== 'toolUseEvent') {
+    const inTok = asNum(event.inputTokens)
+    const outTok = asNum(event.outputTokens)
+    if (inTok !== undefined && !event.metadataEvent && !event.tokenUsage) usage.inputTokens = inTok
+    if (outTok !== undefined && !event.metadataEvent && !event.tokenUsage) usage.outputTokens = outTok
+  }
+
+  // meteringEvent.usage = credits (not tokens)
+  const metering =
+    eventType === 'meteringEvent' || event.meteringEvent
+      ? ((event.meteringEvent as Record<string, unknown> | undefined) || event)
+      : null
+  if (metering) {
+    const credits = asNum(metering.credits) ?? asNum(metering.usage)
+    if (credits !== undefined) usage.credits = credits
+  }
+}
+
 function extractEventType(headers: Uint8Array): string {
   // AWS event-stream headers: [nameLen:1][name][valueType:1][valueLen:2][value]...
   let offset = 0
@@ -258,6 +346,7 @@ async function parseEventStream(
                 } catch {
                   /* ignore */
                 }
+                outputChars += currentTool.inputBuffer.length || JSON.stringify(input).length
                 await onChunk('', {
                   toolUseId: currentTool.toolUseId,
                   name: currentTool.name,
@@ -268,27 +357,9 @@ async function parseEventStream(
               }
             }
 
-            // usage / metering events (various shapes)
-            const metering = (event.meteringEvent ||
-              event.usageEvent ||
-              event.contextUsageEvent ||
-              event) as Record<string, unknown>
-            if (typeof metering.inputTokens === 'number') {
-              usage.inputTokens = metering.inputTokens as number
-            }
-            if (typeof metering.outputTokens === 'number') {
-              usage.outputTokens = metering.outputTokens as number
-            }
-            if (typeof metering.credits === 'number') {
-              usage.credits = metering.credits as number
-            }
-            const tokenUsage = metering.tokenUsage as
-              | { inputTokens?: number; outputTokens?: number }
-              | undefined
-            if (tokenUsage) {
-              if (typeof tokenUsage.inputTokens === 'number') usage.inputTokens = tokenUsage.inputTokens
-              if (typeof tokenUsage.outputTokens === 'number') usage.outputTokens = tokenUsage.outputTokens
-            }
+            // Tokens: metadataEvent.tokenUsage (uncachedInputTokens / outputTokens).
+            // meteringEvent.usage is credits — see mergeKiroUsageFromEvent.
+            mergeKiroUsageFromEvent(usage, event, eventType)
 
             if (eventType === 'error' || event.message === 'error' || event.reason) {
               const reason = String(event.reason || event.message || 'upstream error')
@@ -311,6 +382,7 @@ async function parseEventStream(
       } catch {
         /* ignore */
       }
+      outputChars += currentTool.inputBuffer.length || JSON.stringify(input).length
       await onChunk('', {
         toolUseId: currentTool.toolUseId,
         name: currentTool.name,
