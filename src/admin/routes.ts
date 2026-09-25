@@ -128,8 +128,27 @@ export function createAdminRoutes(
       if (Array.isArray(body.tags)) {
         body.tags = [...new Set(body.tags.map((t) => String(t).trim()).filter(Boolean))]
       }
+      // Empty machineId/deviceId → store regenerates; non-empty replaces.
+      if ('machineId' in body && (body.machineId === null || body.machineId === '')) {
+        body.machineId = ''
+      }
+      if ('deviceId' in body && (body.deviceId === null || body.deviceId === '')) {
+        body.deviceId = ''
+      }
       const updated = await store.update(c.req.param('id'), body as never)
       return c.json(withExit(updated))
+    } catch (err) {
+      return c.json({ error: err instanceof Error ? err.message : String(err) }, 404)
+    }
+  })
+
+  app.post('/accounts/:id/regenerate-machine-id', async (c) => {
+    try {
+      const id = c.req.param('id')
+      const machineId = await store.regenerateMachineId(id)
+      const acc = store.get(id)
+      if (!acc) return c.json({ error: 'Not found' }, 404)
+      return c.json({ ok: true, machineId, account: withExit(acc) })
     } catch (err) {
       return c.json({ error: err instanceof Error ? err.message : String(err) }, 404)
     }

@@ -190,21 +190,57 @@ export class AccountStore {
   async update(id: string, patch: AccountUpdateInput): Promise<AccountRecord> {
     const existing = this.accounts.get(id)
     if (!existing) throw new Error(`Account not found: ${id}`)
-    const updated: AccountRecord = {
+
+    // Apply patch but never let undefined machineId/deviceId from Partial spreads wipe
+    // a stored value. Explicit empty/null regenerates; non-empty replaces.
+    const next: AccountRecord = {
       ...existing,
       ...patch,
       id,
       updatedAt: Date.now(),
     }
-    this.accounts.set(id, updated)
-    this.pool.updateAccount(id, updated)
+
+    if ('machineId' in patch || 'deviceId' in patch) {
+      const concrete =
+        typeof patch.machineId === 'string' ||
+        typeof patch.deviceId === 'string' ||
+        patch.machineId === null ||
+        patch.deviceId === null
+      if (concrete) {
+        const resolved = pickStoredMachineId({
+          machineId: typeof patch.machineId === 'string' ? patch.machineId : undefined,
+          deviceId: typeof patch.deviceId === 'string' ? patch.deviceId : undefined,
+        })
+        const machineId = resolved || generateMachineId()
+        next.machineId = machineId
+        next.deviceId = machineId
+      } else {
+        // Keys present as undefined only (e.g. import merge) — keep existing.
+        next.machineId = existing.machineId
+        next.deviceId = existing.deviceId
+      }
+    }
+
+    // Never persist an account without a machineId after an update.
+    if (!pickStoredMachineId(next)) {
+      const machineId = generateMachineId()
+      next.machineId = machineId
+      next.deviceId = machineId
+    } else if (next.machineId && !next.deviceId) {
+      next.deviceId = next.machineId
+    } else if (next.deviceId && !next.machineId) {
+      next.machineId = next.deviceId
+    }
+
+    this.accounts.set(id, next)
+    this.pool.updateAccount(id, next)
     if (patch.enabled === false) {
       this.pool.updateAccount(id, { isAvailable: false })
-    } else if (patch.enabled === true && !updated.suspended) {
+    } else if (patch.enabled === true && !next.suspended) {
       this.pool.updateAccount(id, { isAvailable: true })
     }
     await this.persist()
-    return this.withStats(updated)
+    return this.withStats(next)
   }
 
   async remove(id: string): Promise<boolean> {
@@ -234,7 +270,14 @@ export class AccountStore {
     return machineId
   }
 
-    async setEnabled(id: string, enabled: boolean): Promise<AccountRecord> {
+  /** Force a new machineId (admin edit / regenerate). Always rotates. */
+  async regenerateMachineId(id: string): Promise<string> {
+    const machineId = generateMachineId()
+    await this.update(id, { machineId, deviceId: machineId })
+    return machineId
+  }
+
+  async setEnabled(id: string, enabled: boolean): Promise<AccountRecord> {
     return this.update(id, { enabled })
   }
 
@@ -261,8 +304,18 @@ export class AccountStore {
     for (const item of items) {
       const id = item.id || randomUUID()
       if (this.accounts.has(id)) {
-        await this.update(id, item)
+        // Preserve existing machineId when import payload omits/empties it.
+        // Non-empty machineId/deviceId from the payload still replaces.
+        const patch: AccountUpdateInput = { ...item }
+        if (!pickStoredMachineId({ machineId: item.machineId, deviceId: item.deviceId })) {
+          delete patch.machineId
+          delete patch.deviceId
+        }
+        await this.update(id, patch)
+        // Existing row may have had no machineId (pre-migration data).
+        await this.ensureMachineId(id)
       } else {
+        // create() generates machineId when missing.
         await this.create({ ...item, id })
       }
       imported++

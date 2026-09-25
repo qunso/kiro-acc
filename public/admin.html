@@ -1005,10 +1005,13 @@ function renderAccountDrawer(a) {
       '<dt>账号别名</dt><dd>'+esc(a.label || '—')+'</dd>'+
       '<dt>身份提供商</dt><dd>'+esc(provider)+'</dd>'+
       '<dt>用户 ID</dt><dd class="mono">'+esc(kiroUid || '—')+'</dd>'+
-      '<dt>机器码 / Machine ID</dt><dd class="mono">'+esc(machineId || '—')+
-        (machineId
-          ? '<div class="muted" style="font-size:11px;margin-top:4px">账号绑定的客户端身份；上游 User-Agent 后缀使用此值（非系统 MachineGuid，不按请求轮换）</div>'
-          : '<div class="muted" style="font-size:11px;margin-top:4px">未记录；导入含 machineId/机器码 时写入，或首次请求时自动生成并持久化</div>')+
+      '<dt>机器码 / Machine ID</dt><dd>'+
+        '<div class="row" style="gap:6px;align-items:center;flex-wrap:wrap">'+
+          '<input class="tag-edit mono" id="drawerMachineId" style="flex:1;min-width:160px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px" value="'+esc(machineId)+'" placeholder="留空保存则自动生成" spellcheck="false"/>'+
+          '<button type="button" class="btn-sm primary" id="drawerSaveMachineId">保存</button>'+
+          '<button type="button" class="btn-sm" id="drawerRegenMachineId" title="生成新的 UUID 机器码并立即保存">重新生成</button>'+
+        '</div>'+
+        '<div class="muted" style="font-size:11px;margin-top:4px">账号绑定的客户端身份；上游 User-Agent 后缀使用此值（非系统 MachineGuid，不按请求轮换）。留空保存会自动生成；导入无机器码时也会自动生成并持久化。</div>'+
       '</dd>'+
     '</dl></div>';
 
@@ -1048,6 +1051,54 @@ function renderAccountDrawer(a) {
   body.innerHTML = quotaHtml + basicHtml + subHtml + modelsHtml + proxyHtml;
   const btn = $('drawerRefreshQuota');
   if (btn) btn.onclick = () => refreshDrawerQuota();
+  const saveMid = $('drawerSaveMachineId');
+  if (saveMid) saveMid.onclick = () => saveDrawerMachineId();
+  const regenMid = $('drawerRegenMachineId');
+  if (regenMid) regenMid.onclick = () => regenerateDrawerMachineId();
+}
+
+async function saveDrawerMachineId() {
+  if (!drawerAccountId) return;
+  const input = $('drawerMachineId');
+  const value = input ? String(input.value || '').trim() : '';
+  const btn = $('drawerSaveMachineId');
+  if (btn) { btn.disabled = true; btn.textContent = '保存中…'; }
+  try {
+    const r = await api('/accounts/' + encodeURIComponent(drawerAccountId), {
+      method: 'PATCH',
+      body: JSON.stringify({ machineId: value }),
+    });
+    if (r) patchAccountInState(r);
+    toast(value ? '机器码已保存' : '机器码为空，已自动生成并保存');
+    const live = state.accounts.find(a => a.id === drawerAccountId);
+    if (live) renderAccountDrawer(live);
+    renderAccounts();
+  } catch (e) {
+    toast(e.message || String(e), true);
+  } finally {
+    const b = $('drawerSaveMachineId');
+    if (b) { b.disabled = false; b.textContent = '保存'; }
+  }
+}
+
+async function regenerateDrawerMachineId() {
+  if (!drawerAccountId) return;
+  if (!confirm('重新生成机器码？上游 User-Agent 将使用新值（不会改系统 MachineGuid）。')) return;
+  const btn = $('drawerRegenMachineId');
+  if (btn) { btn.disabled = true; btn.textContent = '生成中…'; }
+  try {
+    const r = await api('/accounts/' + encodeURIComponent(drawerAccountId) + '/regenerate-machine-id', { method: 'POST' });
+    if (r.account) patchAccountInState(r.account);
+    toast('已重新生成机器码');
+    const live = state.accounts.find(a => a.id === drawerAccountId);
+    if (live) renderAccountDrawer(live);
+    renderAccounts();
+  } catch (e) {
+    toast(e.message || String(e), true);
+  } finally {
+    const b = $('drawerRegenMachineId');
+    if (b) { b.disabled = false; b.textContent = '重新生成'; }
+  }
 }
 async function openAccountDrawer(accountId) {
   const a = state.accounts.find(x => x.id === accountId);
