@@ -10,8 +10,11 @@ export interface RequestLogEntry {
   apiStyle: ApiStyle
   model?: string
   accountId?: string
+  accountLabel?: string
   apiKeyId?: string
   apiKeyLabel?: string
+  exitId?: string
+  exitIp?: string
   status: number
   success: boolean
   latencyMs: number
@@ -33,8 +36,11 @@ export class RequestLog {
       apiStyle: partial.apiStyle,
       model: partial.model,
       accountId: partial.accountId,
+      accountLabel: partial.accountLabel,
       apiKeyId: partial.apiKeyId,
       apiKeyLabel: partial.apiKeyLabel,
+      exitId: partial.exitId,
+      exitIp: partial.exitIp,
       status: partial.status,
       success: partial.success,
       latencyMs: partial.latencyMs,
@@ -68,8 +74,11 @@ export class RequestLog {
         JSON.stringify({
           model: e.model,
           accountId: e.accountId,
+          accountLabel: e.accountLabel,
           apiKeyId: e.apiKeyId,
           apiKeyLabel: e.apiKeyLabel,
+          exitId: e.exitId,
+          exitIp: e.exitIp,
           error: e.error,
           path: e.path,
           status: e.status,

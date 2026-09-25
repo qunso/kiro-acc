@@ -1251,7 +1251,15 @@ export function createAdminRoutes(
     const exitDisabled = exits.filter((e) => e.disabled).length
     const totalBan = exits.reduce((s, e) => s + (e.banCount || 0), 0)
     const usage = await store.getUsage()
-    const recent = (usage.records || []).slice(-12).reverse()
+    const recent = (usage.records || []).slice(-12).reverse().map((rec) => {
+      if (rec.accountLabel) return rec
+      const acc = store.get(rec.accountId)
+      const accountLabel =
+        (acc?.label && acc.label.trim()) ||
+        (acc?.email && acc.email.trim()) ||
+        undefined
+      return accountLabel ? { ...rec, accountLabel } : rec
+    })
     return c.json({
       accounts: {
         total: accounts.length,

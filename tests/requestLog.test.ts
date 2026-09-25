@@ -56,4 +56,29 @@ describe('RequestLog', () => {
     const byQ = log.list({ q: 'env api_key' })
     expect(byQ.some((e) => e.apiKeyId === 'env')).toBe(true)
   })
+
+  it('stores exit and account label on entries and includes them in q filter', () => {
+    const log = new RequestLog(10)
+    log.push({
+      method: 'POST',
+      path: '/v1/messages',
+      apiStyle: 'anthropic',
+      model: 'claude-sonnet-4.5',
+      accountId: 'a510f4ca-93a1-4b2c-9def-1234567890ab',
+      accountLabel: 'alice@example.com',
+      apiKeyId: 'key-1',
+      apiKeyLabel: 'ops',
+      exitId: 'exit-42',
+      exitIp: '1.2.3.4',
+      status: 200,
+      success: true,
+      latencyMs: 15,
+    })
+    const byExit = log.list({ q: 'exit-42' })
+    expect(byExit).toHaveLength(1)
+    expect(byExit[0]?.exitIp).toBe('1.2.3.4')
+    expect(byExit[0]?.accountLabel).toBe('alice@example.com')
+    const byLabel = log.list({ q: 'alice@example.com' })
+    expect(byLabel).toHaveLength(1)
+  })
 })
