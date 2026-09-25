@@ -200,7 +200,14 @@ export class AccountStore {
     const existing = this.accounts.get(id)
     if (!existing) throw new Error(`Account not found: ${id}`)
 
-    const mergedForValidation = { ...existing, ...patch }
+    const mergedForValidation: AccountRecord = { ...existing, ...patch }
+    // Blank upstreamApiKey in PATCH means "keep existing" (masked form UX).
+    if (
+      typeof patch.upstreamApiKey === 'string' &&
+      !patch.upstreamApiKey.trim()
+    ) {
+      mergedForValidation.upstreamApiKey = existing.upstreamApiKey
+    }
     // Compat accounts must keep baseUrl + upstreamApiKey after every update.
     // Kiro accounts stay lenient on partial patches (token refresh, labels, etc.).
     if (isCompatUpstream(mergedForValidation)) {
@@ -223,10 +230,30 @@ export class AccountStore {
       next.baseUrl = patch.baseUrl.trim() || undefined
     }
     if (typeof patch.upstreamApiKey === 'string') {
-      next.upstreamApiKey = patch.upstreamApiKey.trim() || undefined
+      // Blank form field = keep existing secret (do not clear / fail validation).
+      const trimmedKey = patch.upstreamApiKey.trim()
+      next.upstreamApiKey = trimmedKey || existing.upstreamApiKey
     }
     if (typeof patch.modelPrefix === 'string') {
+      // Empty string clears the prefix (requirement).
       next.modelPrefix = patch.modelPrefix.trim() || undefined
+    }
+    if ('defaultHeaders' in patch) {
+      const raw = patch.defaultHeaders
+      if (raw == null) {
+        next.defaultHeaders = undefined
+      } else if (typeof raw === 'object' && !Array.isArray(raw)) {
+        const out: Record<string, string> = {}
+        for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+          if (v == null) continue
+          const key = String(k).trim()
+          if (!key) continue
+          out[key] = String(v)
+        }
+        next.defaultHeaders = Object.keys(out).length ? out : undefined
+      } else {
+        next.defaultHeaders = undefined
+      }
     }
 
     if ('machineId' in patch || 'deviceId' in patch) {

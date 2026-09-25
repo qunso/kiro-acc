@@ -355,4 +355,72 @@ describe('compat relay routing through pool', () => {
     expect(body.upstreamType).toBe('openai_compat')
     expect(body.baseUrl).toBe(upstreamUrl)
   })
+
+  it('PATCHes compat fields including clearing modelPrefix', async () => {
+    dir = await fs.mkdtemp(path.join(os.tmpdir(), 'kiro-compat-patch-'))
+    const config: AppConfig = {
+      ...loadConfig(),
+      dataDir: dir,
+      apiKey: 'test-key',
+      adminToken: 'test-admin',
+    }
+    const accountsStore = new AccountStore(dir, config)
+    await accountsStore.init()
+    const exits = new ExitsStore(dir)
+    await exits.init()
+    const pools = new PoolsStore(dir)
+    await pools.init()
+    const app = createServer(accountsStore, config, exits, pools)
+
+    const created = await app.request('/admin/accounts', {
+      method: 'POST',
+      headers: { 'x-admin-token': 'test-admin', 'content-type': 'application/json' },
+      body: JSON.stringify({
+        label: 'relay-edit',
+        upstreamType: 'openai_compat',
+        baseUrl: 'https://relay.example/v1',
+        upstreamApiKey: 'sk-original',
+        modelPrefix: 'openai/',
+        defaultHeaders: { 'x-custom': '1' },
+        enabled: true,
+      }),
+    })
+    expect(created.status).toBe(201)
+    const createdBody = (await created.json()) as { id: string; modelPrefix?: string }
+    expect(createdBody.modelPrefix).toBe('openai/')
+
+    const patched = await app.request(`/admin/accounts/${createdBody.id}`, {
+      method: 'PATCH',
+      headers: { 'x-admin-token': 'test-admin', 'content-type': 'application/json' },
+      body: JSON.stringify({
+        label: 'relay-edited',
+        baseUrl: 'https://relay.example/openai/v1',
+        modelPrefix: '',
+        defaultHeaders: { 'x-custom': '2' },
+        upstreamApiKey: '', // blank keeps existing
+        upstreamType: 'anthropic_compat',
+      }),
+    })
+    expect(patched.status).toBe(200)
+    const body = (await patched.json()) as {
+      label: string
+      baseUrl: string
+      modelPrefix?: string
+      upstreamApiKey?: string
+      upstreamType: string
+      defaultHeaders?: Record<string, string>
+    }
+    expect(body.label).toBe('relay-edited')
+    expect(body.baseUrl).toBe('https://relay.example/openai/v1')
+    expect(body.modelPrefix).toBeUndefined()
+    expect(body.upstreamApiKey).toBe('sk-original')
+    expect(body.upstreamType).toBe('anthropic_compat')
+    expect(body.defaultHeaders).toEqual({ 'x-custom': '2' })
+
+    // Direct store check: empty string clears prefix
+    const cleared = await accountsStore.update(createdBody.id, { modelPrefix: 'tmp/' })
+    expect(cleared.modelPrefix).toBe('tmp/')
+    const empty = await accountsStore.update(createdBody.id, { modelPrefix: '' })
+    expect(empty.modelPrefix).toBeUndefined()
+  })
 })
