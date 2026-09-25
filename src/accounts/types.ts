@@ -134,6 +134,8 @@ export interface PersistedConfig {
 export interface UsageRecord {
   timestamp: number
   accountId: string
+  /** Human-readable account label/email at request time (optional, backward compatible). */
+  accountLabel?: string
   model: string
   inputTokens: number
   outputTokens: number
@@ -143,6 +145,10 @@ export interface UsageRecord {
   /** Managed / env API key that authenticated the proxy request (optional, backward compatible). */
   apiKeyId?: string
   apiKeyLabel?: string
+  /** Sticky outbound exit catalog id at request time (account.outboundExitId). */
+  exitId?: string
+  /** Exit egress IP (catalog exitIp / expectedExitIp) when known. */
+  exitIp?: string
 }
 
 export interface UsageStore {

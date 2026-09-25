@@ -228,7 +228,7 @@ pre.docs{background:#0d1218;border:1px solid var(--line);border-radius:10px;padd
       <p class="muted" id="dashUsageTotals"></p>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>时间</th><th>账号</th><th>模型</th><th>结果</th><th>tokens</th><th>耗时</th></tr></thead>
+          <thead><tr><th>时间</th><th>账号</th><th>API Key</th><th>出口</th><th>模型</th><th>结果</th><th>tokens</th><th>耗时</th></tr></thead>
           <tbody id="dashUsageBody"></tbody>
         </table>
       </div>
@@ -453,7 +453,7 @@ pre.docs{background:#0d1218;border:1px solid var(--line);border-radius:10px;padd
       </div>
       <div class="table-wrap" style="max-height:360px">
         <table>
-          <thead><tr><th>时间</th><th>风格</th><th>模型</th><th>账号</th><th>API Key</th><th>状态</th><th>耗时</th><th>错误</th></tr></thead>
+          <thead><tr><th>时间</th><th>风格</th><th>模型</th><th>账号</th><th>API Key</th><th>出口</th><th>状态</th><th>耗时</th><th>错误</th></tr></thead>
           <tbody id="requestLogBody"></tbody>
         </table>
       </div>
@@ -1593,13 +1593,14 @@ async function reloadRequestLog() {
         '<td class="muted">'+esc(new Date(e.ts).toLocaleString())+'</td>'+
         '<td>'+esc(e.apiStyle)+'</td>'+
         '<td class="mono">'+esc(e.model||'')+'</td>'+
-        '<td class="mono">'+esc((e.accountId||'').slice(0,12))+'</td>'+
-        '<td class="mono" title="'+esc(e.apiKeyId||'')+'">'+esc(e.apiKeyLabel || e.apiKeyId || '—')+'</td>'+
+        fmtAccountCell(e.accountId, e.accountLabel)+
+        fmtApiKeyCell(e.apiKeyId, e.apiKeyLabel)+
+        fmtExitCell(e.exitId, e.exitIp)+
         '<td>'+(e.success?'<span class="badge ok">'+e.status+'</span>':'<span class="badge bad">'+e.status+'</span>')+'</td>'+
         '<td>'+esc(e.latencyMs)+'ms</td>'+
         '<td class="muted">'+esc(e.error||'')+'</td>'+
       '</tr>'
-    ).join('') || '<tr><td colspan="8" class="muted">暂无请求</td></tr>';
+    ).join('') || '<tr><td colspan="9" class="muted">暂无请求</td></tr>';
   } catch (e) { toast(e.message, true); }
 }
 
@@ -1773,6 +1774,36 @@ async function loadWebhooks() {
 
 
 
+
+/** Short UUID prefix for display; full id stays in title/hover. */
+function shortId(id) {
+  if (!id) return '';
+  return String(id).length > 8 ? String(id).slice(0, 8) : String(id);
+}
+/** Account cell: human label + short id; title = full UUID. */
+function fmtAccountCell(id, label) {
+  const live = (!label && id && state.accounts)
+    ? (state.accounts.find(a => a.id === id) || {})
+    : {};
+  const name = label || live.label || live.email || '';
+  if (!id && !name) return '<td class="muted">—</td>';
+  const short = shortId(id);
+  const text = name ? (name + (short ? ' · ' + short : '')) : (id ? String(id).slice(0, 12) : '—');
+  return '<td class="mono" title="'+esc(id || '')+'">'+esc(text)+'</td>';
+}
+function fmtApiKeyCell(id, label) {
+  const text = label || id || '';
+  if (!text) return '<td class="muted">—</td>';
+  return '<td class="mono" title="'+esc(id || '')+'">'+esc(label || id)+'</td>';
+}
+function fmtExitCell(exitId, exitIp) {
+  const text = exitId || exitIp || '';
+  if (!text) return '<td class="muted">—</td>';
+  const tip = [exitId, exitIp].filter(Boolean).join(' / ');
+  const show = exitId || exitIp;
+  return '<td class="mono" title="'+esc(tip)+'">'+esc(show)+'</td>';
+}
+
 function renderDashboard() {
   const d = state.dashboard;
   if (!d) {
@@ -1811,13 +1842,15 @@ function renderDashboard() {
   $('dashUsageBody').innerHTML = recent.map(r =>
     '<tr>'+
       '<td class="muted">'+esc(new Date(r.timestamp).toLocaleString())+'</td>'+
-      '<td class="mono">'+esc((r.accountId||'').slice(0,12))+'</td>'+
+      fmtAccountCell(r.accountId, r.accountLabel)+
+      fmtApiKeyCell(r.apiKeyId, r.apiKeyLabel)+
+      fmtExitCell(r.exitId, r.exitIp)+
       '<td class="mono">'+esc(r.model||'')+'</td>'+
       '<td>'+(r.success?'<span class="badge ok">ok</span>':'<span class="badge bad">fail</span>')+'</td>'+
       '<td class="mono">'+(r.inputTokens||0)+'+'+(r.outputTokens||0)+'</td>'+
       '<td>'+esc(r.responseTimeMs)+'ms</td>'+
     '</tr>'
-  ).join('') || '<tr><td colspan="6" class="muted">暂无用量记录</td></tr>';
+  ).join('') || '<tr><td colspan="8" class="muted">暂无用量记录</td></tr>';
 }
 
 async function loadDashboard() {

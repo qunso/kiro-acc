@@ -16,6 +16,7 @@ import { chatCompletionsHandler, listModelsHandler } from './proxy/openaiHandler
 import { countTokensHandler, messagesHandler } from './proxy/messagesHandler.js'
 import { setGlobalWebhookStore } from './webhooks/dispatch.js'
 import { globalRequestLog } from './proxy/requestLog.js'
+import { bindUsageExitsStore } from './proxy/logUsage.js'
 
 export interface ServerDeps {
   exits?: ExitsStore
@@ -39,6 +40,7 @@ export function createServer(
   const webhooks = extra?.webhooks
   const opsSettings = extra?.opsSettings
   setGlobalWebhookStore(webhooks)
+  bindUsageExitsStore(exits)
 
   if (opsSettings) {
     const cap = opsSettings.get().requestLogCapacity
