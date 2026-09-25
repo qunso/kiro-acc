@@ -147,3 +147,80 @@ describe('upstream headers carry machineId', () => {
     void captured
   })
 })
+
+describe('import + edit machineId', () => {
+  it('generates machineId on import when payload omits it', async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'kiro-mid-imp-'))
+    dirs.push(dir)
+    const config = { ...loadConfig(), dataDir: dir }
+    const store = new AccountStore(dir, config)
+    await store.init()
+    const normalized = normalizeAccountImport({
+      accounts: [
+        { email: 'no-mid@x.com', refreshToken: 'rt-1' },
+        { email: 'has-mid@x.com', refreshToken: 'rt-2', machineId: 'keep-this-mid' },
+        { email: 'empty-mid@x.com', refreshToken: 'rt-3', machineId: '   ' },
+      ],
+    })
+    await store.importAccounts(normalized.accounts, 'merge')
+    const a = store.get('acct:no-mid@x.com')!
+    const b = store.get('acct:has-mid@x.com')!
+    const c = store.get('acct:empty-mid@x.com')!
+    expect(a.machineId).toBeTruthy()
+    expect(a.machineId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+    )
+    expect(a.deviceId).toBe(a.machineId)
+    expect(b.machineId).toBe('keep-this-mid')
+    expect(c.machineId).toBeTruthy()
+    expect(c.machineId).not.toBe('   ')
+  })
+
+  it('preserves existing machineId on re-import without machineId', async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'kiro-mid-merge-'))
+    dirs.push(dir)
+    const config = { ...loadConfig(), dataDir: dir }
+    const store = new AccountStore(dir, config)
+    await store.init()
+    await store.importAccounts(
+      [{ id: 'acct:m@x.com', email: 'm@x.com', label: 'm', refreshToken: 'rt', accessToken: '', enabled: true, machineId: 'original-mid' }],
+      'merge',
+    )
+    expect(store.get('acct:m@x.com')!.machineId).toBe('original-mid')
+    await store.importAccounts(
+      [{ id: 'acct:m@x.com', email: 'm@x.com', label: 'm2', refreshToken: 'rt2', accessToken: '', enabled: true }],
+      'merge',
+    )
+    const again = store.get('acct:m@x.com')!
+    expect(again.machineId).toBe('original-mid')
+    expect(again.label).toBe('m2')
+    expect(again.refreshToken).toBe('rt2')
+  })
+
+  it('update replaces machineId; empty regenerates; regenerateMachineId rotates', async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'kiro-mid-edit-'))
+    dirs.push(dir)
+    const config = { ...loadConfig(), dataDir: dir }
+    const store = new AccountStore(dir, config)
+    await store.init()
+    const a = await store.create({ label: 'e', accessToken: 'tok', enabled: true })
+    const first = a.machineId!
+    expect(first).toBeTruthy()
+
+    const replaced = await store.update(a.id, { machineId: 'custom-machine-id' })
+    expect(replaced.machineId).toBe('custom-machine-id')
+    expect(replaced.deviceId).toBe('custom-machine-id')
+
+    const emptied = await store.update(a.id, { machineId: '' })
+    expect(emptied.machineId).toBeTruthy()
+    expect(emptied.machineId).not.toBe('custom-machine-id')
+    expect(emptied.machineId).not.toBe(first)
+    expect(emptied.deviceId).toBe(emptied.machineId)
+
+    const beforeRegen = emptied.machineId!
+    const rotated = await store.regenerateMachineId(a.id)
+    expect(rotated).toBeTruthy()
+    expect(rotated).not.toBe(beforeRegen)
+    expect(store.get(a.id)!.machineId).toBe(rotated)
+  })
+})
