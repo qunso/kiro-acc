@@ -35,6 +35,7 @@ import {
 } from '../webhooks/signals.js'
 import {
   accountSupportsApiStyle,
+  accountSupportsModel,
   isCompatUpstream,
   resolveUpstreamType,
 } from '../accounts/upstream.js'
@@ -144,6 +145,15 @@ export function chatCompletionsHandler(
         tried.add(account.id)
         lastError = new Error(
           `Account ${account.id} upstreamType=${resolveUpstreamType(account)} cannot serve /v1/chat/completions`,
+        )
+        continue
+      }
+
+      // Protocol ∩ model allowlist/cache (manual supportedModels wins; else upstreamModels).
+      if (!accountSupportsModel(account, body.model)) {
+        tried.add(account.id)
+        lastError = new Error(
+          `Account ${account.id} does not support model ${body.model || '(missing)'}`,
         )
         continue
       }

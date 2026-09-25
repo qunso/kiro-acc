@@ -133,3 +133,65 @@ export function validateAccountCredentials(
   }
   return { ok: true }
 }
+
+
+/** Normalize a list of model id strings (trim, drop empties, dedupe, preserve order). */
+export function normalizeModelIdList(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return []
+  const out: string[] = []
+  const seen = new Set<string>()
+  for (const item of raw) {
+    const s = String(item ?? '').trim()
+    if (!s || seen.has(s)) continue
+    seen.add(s)
+    out.push(s)
+  }
+  return out
+}
+
+/**
+ * Effective model filter for pool selection:
+ * - non-empty supportedModels → manual allowlist
+ * - else non-empty upstreamModels cache → cache filter
+ * - else null → unrestricted (backward compatible)
+ */
+export function effectiveModelAllowlist(
+  account: Pick<AccountRecord, 'supportedModels' | 'upstreamModels'> | null | undefined,
+): string[] | null {
+  const manual = normalizeModelIdList(account?.supportedModels)
+  if (manual.length) return manual
+  const cached = normalizeModelIdList(account?.upstreamModels)
+  if (cached.length) return cached
+  return null
+}
+
+/**
+ * Whether this account may serve `requestModel` given allowlist / cache.
+ * Compares with and without modelPrefix (strip / apply) so client ids and
+ * upstream-prefixed ids both match.
+ */
+export function accountSupportsModel(
+  account: Pick<AccountRecord, 'supportedModels' | 'upstreamModels' | 'modelPrefix'> | null | undefined,
+  requestModel: string | undefined | null,
+): boolean {
+  const allow = effectiveModelAllowlist(account)
+  if (!allow) return true
+  const model = String(requestModel ?? '').trim()
+  if (!model) return false
+  const prefix = (account?.modelPrefix || '').trim()
+  const variants = new Set<string>([model])
+  const prefixed = applyModelPrefix(model, prefix)
+  if (prefixed) variants.add(prefixed)
+  if (prefix && model.startsWith(prefix)) {
+    variants.add(model.slice(prefix.length))
+  }
+  for (const entry of allow) {
+    if (variants.has(entry)) return true
+    if (prefix && entry.startsWith(prefix) && variants.has(entry.slice(prefix.length))) {
+      return true
+    }
+    const entryPrefixed = applyModelPrefix(entry, prefix)
+    if (entryPrefixed && variants.has(entryPrefixed)) return true
+  }
+  return false
+}

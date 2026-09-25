@@ -386,6 +386,7 @@ pre.docs{background:#0d1218;border:1px solid var(--line);border-radius:10px;padd
         <button class="primary" id="doRelayCreate">创建</button>
       </div>
       <textarea id="relayHeaders" placeholder='可选 defaultHeaders JSON，如 {"x-custom":"1"}' style="min-height:56px"></textarea>
+      <textarea id="relaySupportedModels" placeholder="可选 supportedModels 白名单（每行或逗号分隔）" style="min-height:48px;margin-top:8px"></textarea>
       <p class="muted" id="relayCreateHint"></p>
     </div>
     <div class="card">
@@ -1059,6 +1060,11 @@ function renderAccountDrawer(a) {
   const headersJson = a.defaultHeaders
     ? JSON.stringify(a.defaultHeaders, null, 2)
     : '';
+  const supportedModelsText = Array.isArray(a.supportedModels) && a.supportedModels.length
+    ? a.supportedModels.join('\n')
+    : '';
+  const cachedModels = Array.isArray(a.upstreamModels) ? a.upstreamModels : [];
+  const cachedAt = a.upstreamModelsFetchedAt || 0;
 
   $('drawerTitle').textContent = a.label || a.email || a.id;
   $('drawerSub').textContent = (a.email || a.id) + (subTitle ? (' · ' + subTitle) : '');
@@ -1100,6 +1106,18 @@ function renderAccountDrawer(a) {
           '<label class="muted" style="font-size:12px">upstreamApiKey<input id="drawerCompatApiKey" type="password" value="" placeholder="•••• 留空保留原密钥" style="width:100%;margin-top:4px" autocomplete="new-password"/></label>'+
           '<label class="muted" style="font-size:12px">modelPrefix<input id="drawerCompatModelPrefix" class="mono" value="'+esc(modelPrefix)+'" placeholder="可选；清空保存则移除" style="width:100%;margin-top:4px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px"/></label>'+
           '<label class="muted" style="font-size:12px">defaultHeaders (JSON)<textarea id="drawerCompatHeaders" placeholder=\'{"x-custom":"1"}\' style="width:100%;min-height:64px;margin-top:4px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px">'+esc(headersJson)+'</textarea></label>'+
+          '<label class="muted" style="font-size:12px">supportedModels 白名单（每行一个；非空时仅这些模型进池；留空则用下方缓存，都空则不限制）'+
+            '<textarea id="drawerCompatSupportedModels" placeholder="gpt-4o\nclaude-sonnet-4" style="width:100%;min-height:64px;margin-top:4px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px">'+esc(supportedModelsText)+'</textarea></label>'+
+          '<div class="drawer-sec" style="margin:0;padding:10px;background:#0d1218">'+
+            '<div class="row" style="justify-content:space-between;align-items:center;margin-bottom:6px">'+
+              '<span class="muted" style="font-size:12px">上游模型缓存 (upstreamModels)</span>'+
+              '<button type="button" class="btn-sm" id="drawerRefreshModels">拉取 /models</button>'+
+            '</div>'+
+            (cachedModels.length
+              ? '<div class="drawer-models">'+cachedModels.slice(0,80).map(function(m){return '<span class="chip mono">'+esc(m)+'</span>';}).join('')+(cachedModels.length>80?'<span class="muted">…+'+(cachedModels.length-80)+'</span>':'')+'</div>'
+              : '<div class="drawer-empty">尚未缓存。点「拉取 /models」从 baseUrl 获取（OpenAI/Anthropic 兼容）。</div>')+
+            (cachedAt ? '<div class="muted" style="font-size:11px;margin-top:6px">缓存于 '+esc(fmtTs(cachedAt))+' · 共 '+cachedModels.length+' 个</div>' : '')+
+          '</div>'+
           '<label class="muted" style="font-size:12px;display:flex;align-items:center;gap:8px">'+
             '<input type="checkbox" id="drawerCompatEnabled"'+(a.enabled !== false ? ' checked' : '')+'/> 启用账号'+
           '</label>'+
@@ -1176,6 +1194,8 @@ function renderAccountDrawer(a) {
   if (regenMid) regenMid.onclick = () => regenerateDrawerMachineId();
   const saveCompat = $('drawerSaveCompat');
   if (saveCompat) saveCompat.onclick = () => saveDrawerCompatFields();
+  const refreshModels = $('drawerRefreshModels');
+  if (refreshModels) refreshModels.onclick = () => refreshDrawerUpstreamModels();
 }
 
 async function saveDrawerCompatFields() {
@@ -1191,6 +1211,7 @@ async function saveDrawerCompatFields() {
     const apiKeyRaw = $('drawerCompatApiKey') ? $('drawerCompatApiKey').value.trim() : '';
     const modelPrefix = $('drawerCompatModelPrefix') ? $('drawerCompatModelPrefix').value : '';
     const headersRaw = $('drawerCompatHeaders') ? $('drawerCompatHeaders').value.trim() : '';
+    const supportedRaw = $('drawerCompatSupportedModels') ? $('drawerCompatSupportedModels').value : '';
     const enabled = $('drawerCompatEnabled') ? !!$('drawerCompatEnabled').checked : true;
     if (!baseUrl) throw new Error('baseUrl 必填');
     let defaultHeaders = null;
@@ -1200,12 +1221,14 @@ async function saveDrawerCompatFields() {
         throw new Error('defaultHeaders 须为 JSON 对象');
       }
     }
+    const supportedModels = supportedRaw.split(/[,\n]/).map(function(s){return s.trim();}).filter(Boolean);
     const body = {
       label: label || undefined,
       upstreamType,
       baseUrl,
       modelPrefix, // empty string clears prefix
       defaultHeaders,
+      supportedModels, // empty array clears manual allowlist
       enabled,
     };
     if (apiKeyRaw) body.upstreamApiKey = apiKeyRaw;
@@ -1227,6 +1250,25 @@ async function saveDrawerCompatFields() {
   } finally {
     const b = $('drawerSaveCompat');
     if (b) { b.disabled = false; b.textContent = '保存兼容上游'; }
+  }
+}
+
+async function refreshDrawerUpstreamModels() {
+  if (!drawerAccountId) return;
+  const btn = $('drawerRefreshModels');
+  if (btn) { btn.disabled = true; btn.textContent = '拉取中…'; }
+  try {
+    const r = await api('/accounts/' + encodeURIComponent(drawerAccountId) + '/refresh-models', { method: 'POST' });
+    if (r.account) patchAccountInState(r.account);
+    toast('已拉取 ' + ((r.models && r.models.length) || 0) + ' 个上游模型');
+    const live = state.accounts.find(a => a.id === drawerAccountId);
+    if (live) renderAccountDrawer(live);
+    renderAccounts();
+  } catch (e) {
+    toast(e.message || String(e), true);
+  } finally {
+    const b = $('drawerRefreshModels');
+    if (b) { b.disabled = false; b.textContent = '拉取 /models'; }
   }
 }
 
@@ -2154,6 +2196,8 @@ $('doRelayCreate').onclick = async () => {
     if (headersRaw) {
       defaultHeaders = JSON.parse(headersRaw);
     }
+    const supportedRaw = ($('relaySupportedModels') && $('relaySupportedModels').value) || '';
+    const supportedModels = supportedRaw.split(/[,\n]/).map(s => s.trim()).filter(Boolean);
     const body = {
       label,
       upstreamType,
@@ -2161,6 +2205,7 @@ $('doRelayCreate').onclick = async () => {
       upstreamApiKey,
       modelPrefix,
       defaultHeaders,
+      supportedModels: supportedModels.length ? supportedModels : undefined,
       enabled: true,
     };
     const r = await api('/accounts', { method: 'POST', body: JSON.stringify(body) });

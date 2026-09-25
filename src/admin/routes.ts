@@ -8,6 +8,7 @@ import {
 } from '../accounts/upstream.js'
 import {
   CompatUpstreamError,
+  fetchUpstreamModels,
   forwardAnthropicMessages,
   forwardOpenAiChatCompletions,
 } from '../proxy/compatRelay.js'
@@ -150,6 +151,35 @@ export function createAdminRoutes(
       return c.json(withExit(updated))
     } catch (err) {
       return c.json({ error: err instanceof Error ? err.message : String(err) }, 404)
+    }
+  })
+
+
+  app.post('/accounts/:id/refresh-models', async (c) => {
+    const id = c.req.param('id')
+    const acc = store.get(id)
+    if (!acc) return c.json({ error: 'Not found' }, 404)
+    if (!isCompatUpstream(acc)) {
+      return c.json({ error: 'refresh-models is only for openai_compat / anthropic_compat accounts' }, 400)
+    }
+    try {
+      const { models, url } = await fetchUpstreamModels(acc)
+      const updated = await store.update(id, {
+        upstreamModels: models,
+        upstreamModelsFetchedAt: Date.now(),
+      })
+      return c.json({
+        ok: true,
+        models,
+        url,
+        fetchedAt: updated.upstreamModelsFetchedAt,
+        account: withExit(updated),
+      })
+    } catch (err) {
+      return c.json(
+        { error: err instanceof Error ? err.message : String(err) },
+        502,
+      )
     }
   })
 

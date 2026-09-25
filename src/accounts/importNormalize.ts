@@ -36,6 +36,7 @@ const TOKEN_KEYS = {
   baseUrl: ['baseUrl', 'base_url', 'BaseUrl', 'upstreamBaseUrl', 'upstream_base_url'],
   upstreamApiKey: ['upstreamApiKey', 'upstream_api_key', 'apiKey', 'api_key', 'ApiKey'],
   modelPrefix: ['modelPrefix', 'model_prefix'],
+  supportedModels: ['supportedModels', 'supported_models', 'allowedModels', 'allowed_models'],
 } as const
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -133,6 +134,18 @@ function mapAuth(
   return { provider }
 }
 
+
+function parseModelList(raw: unknown): string[] | undefined {
+  if (raw == null || raw === '') return undefined
+  if (typeof raw === 'string') {
+    const parts = raw.split(/[,\n]/).map((s) => s.trim()).filter(Boolean)
+    return parts.length ? [...new Set(parts)] : undefined
+  }
+  if (!Array.isArray(raw)) return undefined
+  const parts = raw.map((x) => String(x ?? '').trim()).filter(Boolean)
+  return parts.length ? [...new Set(parts)] : undefined
+}
+
 function parseDefaultHeaders(raw: unknown): Record<string, string> | undefined {
   if (!raw) return undefined
   if (typeof raw === 'string') {
@@ -227,6 +240,9 @@ function toCreateInput(raw: Record<string, unknown>, index: number): {
     upstreamApiKey,
     defaultHeaders: parseDefaultHeaders(flat.defaultHeaders ?? flat.headers),
     modelPrefix: asString(pick(flat, TOKEN_KEYS.modelPrefix)),
+    supportedModels: parseModelList(
+      flat.supportedModels ?? flat.supported_models ?? pick(flat, TOKEN_KEYS.supportedModels),
+    ),
     expiresAt: parseExpiry(pick(flat, TOKEN_KEYS.expiresAt)),
     enabled: flat.enabled === false ? false : true,
     group,

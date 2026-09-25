@@ -281,3 +281,99 @@ export function usageFromOpenAiSseText(text: string): CompatUsage | null {
   }
   return last
 }
+
+
+function parseModelsPayload(body: unknown): string[] {
+  const ids: string[] = []
+  const seen = new Set<string>()
+  const push = (id: unknown) => {
+    const s = String(id ?? '').trim()
+    if (!s || seen.has(s)) return
+    seen.add(s)
+    ids.push(s)
+  }
+  if (!body || typeof body !== 'object') return ids
+  const obj = body as Record<string, unknown>
+  const data = obj.data
+  if (Array.isArray(data)) {
+    for (const item of data) {
+      if (typeof item === 'string') push(item)
+      else if (item && typeof item === 'object' && 'id' in item) {
+        push((item as { id: unknown }).id)
+      }
+    }
+    return ids
+  }
+  if (Array.isArray(obj.models)) {
+    for (const item of obj.models) {
+      if (typeof item === 'string') push(item)
+      else if (item && typeof item === 'object' && 'id' in item) {
+        push((item as { id: unknown }).id)
+      }
+    }
+  }
+  return ids
+}
+
+/**
+ * Best-effort GET upstream model catalog.
+ * Tries `{baseUrl}/v1/models` (OpenAI + Anthropic shape) then `{baseUrl}/models`.
+ */
+export async function fetchUpstreamModels(
+  account: AccountRecord,
+  opts: { signal?: AbortSignal } = {},
+): Promise<{ models: string[]; url: string }> {
+  const t = resolveUpstreamType(account)
+  if (t !== 'openai_compat' && t !== 'anthropic_compat') {
+    throw new Error('fetchUpstreamModels requires a compat upstream account')
+  }
+  const headers =
+    t === 'anthropic_compat' ? anthropicAuthHeaders(account) : openaiAuthHeaders(account)
+  // Drop content-type for GET
+  const getHeaders = { ...headers }
+  delete getHeaders['content-type']
+  delete getHeaders['Content-Type']
+
+  const candidates = [
+    joinCompatUrl(account.baseUrl || '', '/v1/models'),
+    joinCompatUrl(account.baseUrl || '', '/models'),
+  ]
+  // Dedupe identical URLs
+  const urls = [...new Set(candidates)]
+  let lastErr: Error | null = null
+  for (const url of urls) {
+    try {
+      const res = await accountFetch(account, url, {
+        method: 'GET',
+        headers: getHeaders,
+        signal: opts.signal,
+      })
+      const text = await res.text()
+      if (!res.ok) {
+        lastErr = new CompatUpstreamError(
+          `upstream models ${res.status}: ${text.slice(0, 400)}`,
+          res.status,
+          text,
+        )
+        if (res.status === 404 || res.status === 405) continue
+        throw lastErr
+      }
+      let json: unknown
+      try {
+        json = JSON.parse(text) as unknown
+      } catch {
+        throw new CompatUpstreamError('upstream models returned non-JSON', res.status, text)
+      }
+      const models = parseModelsPayload(json)
+      return { models, url }
+    } catch (err) {
+      if (err instanceof CompatUpstreamError && (err.statusCode === 404 || err.statusCode === 405)) {
+        lastErr = err
+        continue
+      }
+      throw err
+    }
+  }
+  throw lastErr || new Error('failed to fetch upstream models')
+}
+
