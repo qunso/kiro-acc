@@ -16,13 +16,13 @@ import {
 import {
   createOpenaiStreamChunk,
   kiroToOpenaiResponse,
-  mapModelId,
   openaiToKiro,
   PUBLIC_MODELS,
   type OpenAIChatRequest,
   type KiroToolUse,
   type KiroUsage,
 } from '../kiro/translator.js'
+import { resolveRequestModel } from './resolveModel.js'
 import type { ExitsStore } from '../exits/store.js'
 import type { PoolsStore } from '../pools/store.js'
 import { rebindAccountExitAfterBan } from '../pools/rebind.js'
@@ -113,6 +113,9 @@ export function chatCompletionsHandler(
         400,
       )
     }
+
+    // Unified Admin Model Rewrite (custom map + builtin) — once per request.
+    body = { ...body, model: resolveRequestModel(body.model) }
 
     const stream = Boolean(body.stream)
     const maxRetries = store.getPersistedConfig().maxRetries ?? config.maxRetries
@@ -271,7 +274,7 @@ export function chatCompletionsHandler(
           ...apiKeyFromContext(c),
           timestamp: Date.now(),
           accountId: account.id,
-          model: result.usage.modelId || mapModelId(body.model),
+          model: result.usage.modelId || body.model,
           inputTokens: result.usage.inputTokens,
           outputTokens: result.usage.outputTokens,
           success: true,
@@ -299,7 +302,7 @@ export function chatCompletionsHandler(
           ...apiKeyFromContext(c),
           timestamp: Date.now(),
           accountId: account.id,
-          model: mapModelId(body.model),
+          model: body.model,
           inputTokens: 0,
           outputTokens: 0,
           success: false,
@@ -438,7 +441,7 @@ async function handleStream(
           ...apiKeyFromContext(c),
           timestamp: Date.now(),
           accountId,
-          model: usage.modelId || mapModelId(body.model),
+          model: usage.modelId || body.model,
           inputTokens: inTokens,
           outputTokens: outTokens,
           success: true,
@@ -464,7 +467,7 @@ async function handleStream(
           ...apiKeyFromContext(c),
           timestamp: Date.now(),
           accountId,
-          model: usage.modelId || mapModelId(body.model),
+          model: usage.modelId || body.model,
           inputTokens: 0,
           outputTokens: 0,
           success: false,

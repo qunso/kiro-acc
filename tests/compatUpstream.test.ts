@@ -486,12 +486,13 @@ describe('compat relay routing through pool', () => {
     await pools.init()
     const app = createServer(accountsStore, config, exits, pools)
 
+    // Allowlist uses post-rewrite ids (builtin gpt-4* → claude-sonnet-4.5).
     await accountsStore.create({
-      label: 'only-gpt4',
+      label: 'only-sonnet',
       upstreamType: 'openai_compat',
       baseUrl: upstreamUrl,
       upstreamApiKey: 'sk-test-openai',
-      supportedModels: ['gpt-4'],
+      supportedModels: ['claude-sonnet-4.5'],
       enabled: true,
       accessToken: '',
     })
@@ -500,12 +501,13 @@ describe('compat relay routing through pool', () => {
       method: 'POST',
       headers: { authorization: 'Bearer test-key', 'content-type': 'application/json' },
       body: JSON.stringify({
-        model: 'gpt-4o',
+        model: 'claude-opus-5',
         messages: [{ role: 'user', content: 'hi' }],
       }),
     })
     expect(denied.status).toBe(503)
 
+    // Client alias gpt-4 rewrites to claude-sonnet-4.5 before pool filter.
     const ok = await app.request('/v1/chat/completions', {
       method: 'POST',
       headers: { authorization: 'Bearer test-key', 'content-type': 'application/json' },
@@ -539,7 +541,7 @@ describe('compat relay routing through pool', () => {
       upstreamType: 'openai_compat',
       baseUrl: upstreamUrl,
       upstreamApiKey: 'sk-test-openai',
-      upstreamModels: ['special-model'],
+      upstreamModels: ['claude-haiku-4.5'],
       enabled: true,
       accessToken: '',
     })
@@ -558,7 +560,7 @@ describe('compat relay routing through pool', () => {
       method: 'POST',
       headers: { authorization: 'Bearer test-key', 'content-type': 'application/json' },
       body: JSON.stringify({
-        model: 'special-model',
+        model: 'claude-haiku-4.5',
         messages: [{ role: 'user', content: 'hi' }],
       }),
     })

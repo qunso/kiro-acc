@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { AccountStore } from '../src/accounts/store.js'
 import { loadConfig } from '../src/config.js'
 import { ClaudeSseSession, claudeToKiro, estimateClaudeInputTokens, kiroToClaudeResponse } from '../src/kiro/anthropic.js'
+import { resolveRequestModel } from '../src/proxy/resolveModel.js'
 import { createServer } from '../src/server.js'
 import type { AppConfig } from '../src/config.js'
 
@@ -12,7 +13,7 @@ describe('claudeToKiro', () => {
   it('places system text in history and tool results on the current turn', () => {
     const payload = claudeToKiro(
       {
-        model: 'claude-sonnet-4-5',
+        model: resolveRequestModel('claude-sonnet-4-5'),
         max_tokens: 128,
         system: 'be brief',
         messages: [

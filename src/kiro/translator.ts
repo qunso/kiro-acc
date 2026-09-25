@@ -374,7 +374,9 @@ function convertTools(
 }
 
 export function openaiToKiro(request: OpenAIChatRequest, profileArn?: string): KiroPayload {
-  const modelId = mapModelId(request.model)
+  // Caller must pass an already-resolved model (resolveRequestModel / mapModelId).
+  // Do not call mapModelId here — that would double-apply custom model-map chains.
+  const modelId = (request.model || '').trim() || mapModelId('')
   const origin = 'AI_EDITOR'
 
   let systemPrompt = ''

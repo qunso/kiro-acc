@@ -8,7 +8,8 @@ import {
   refreshAccountToken,
   resolveProfileArn,
 } from '../kiro/auth.js'
-import { mapModelId, type KiroUsage } from '../kiro/translator.js'
+import type { KiroUsage } from '../kiro/translator.js'
+import { resolveRequestModel } from './resolveModel.js'
 import {
   ClaudeSseSession,
   claudeToKiro,
@@ -126,7 +127,11 @@ export function messagesHandler(
     }
     const parsed = parseRequest(raw)
     if (!parsed.ok) return anthropicError(c, 400, 'invalid_request_error', parsed.message)
-    const body = parsed.req
+    // Unified Admin Model Rewrite (custom map + builtin) — once per request.
+    const body: ClaudeMessagesRequest = {
+      ...parsed.req,
+      model: resolveRequestModel(parsed.req.model),
+    }
 
     const maxRetries = store.getPersistedConfig().maxRetries ?? config.maxRetries
     const preferred = store.getPersistedConfig().preferredEndpoint ?? config.preferredEndpoint
@@ -269,7 +274,7 @@ export function messagesHandler(
           ...apiKeyFromContext(c),
           timestamp: Date.now(),
           accountId: account.id,
-          model: result.usage.modelId || mapModelId(body.model),
+          model: result.usage.modelId || body.model,
           inputTokens: result.usage.inputTokens,
           outputTokens: result.usage.outputTokens,
           success: true,
@@ -292,7 +297,7 @@ export function messagesHandler(
           ...apiKeyFromContext(c),
           timestamp: Date.now(),
           accountId: account.id,
-          model: mapModelId(body.model),
+          model: body.model,
           inputTokens: 0,
           outputTokens: 0,
           success: false,
@@ -366,7 +371,7 @@ async function handleClaudeStream(
           ...apiKeyFromContext(c),
           timestamp: Date.now(),
           accountId,
-          model: usage.modelId || mapModelId(body.model),
+          model: usage.modelId || body.model,
           inputTokens: inTokens,
           outputTokens: outTokens,
           success: true,
@@ -389,7 +394,7 @@ async function handleClaudeStream(
           ...apiKeyFromContext(c),
           timestamp: Date.now(),
           accountId,
-          model: usage.modelId || mapModelId(body.model),
+          model: usage.modelId || body.model,
           inputTokens: 0,
           outputTokens: 0,
           success: false,
