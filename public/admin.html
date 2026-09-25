@@ -1026,6 +1026,11 @@ function patchAccountInState(account) {
   if (i >= 0) state.accounts[i] = Object.assign({}, state.accounts[i], account);
   else state.accounts.push(account);
 }
+function isCompatAccount(a) {
+  const t = (a && a.upstreamType) || 'kiro';
+  return t === 'openai_compat' || t === 'anthropic_compat';
+}
+
 function renderAccountDrawer(a) {
   const body = $('drawerBody');
   if (!body || !a) return;
@@ -1048,63 +1053,101 @@ function renderAccountDrawer(a) {
   const kiroUid = d.kiroUserId || '';
   const provider = [a.provider, a.authMethod].filter(Boolean).join(' / ') || '—';
   const upstreamType = a.upstreamType || 'kiro';
+  const compat = isCompatAccount(a);
   const baseUrl = a.baseUrl || '';
   const modelPrefix = a.modelPrefix || '';
+  const headersJson = a.defaultHeaders
+    ? JSON.stringify(a.defaultHeaders, null, 2)
+    : '';
 
   $('drawerTitle').textContent = a.label || a.email || a.id;
   $('drawerSub').textContent = (a.email || a.id) + (subTitle ? (' · ' + subTitle) : '');
 
-  let quotaHtml =
-    '<div class="drawer-sec" id="drawerQuotaSec">'+
-      '<div class="row" style="justify-content:space-between;align-items:center;margin-bottom:8px">'+
-        '<h3 style="margin:0">配额总览</h3>'+
-        '<button type="button" class="btn-sm primary" id="drawerRefreshQuota">刷新数据</button>'+
-      '</div>'+
-      '<div class="credit-row"><span class="mono"><b>'+fmtNum(used)+'</b> / '+fmtNum(limit > 0 ? limit : null)+'</span>'+
-        '<span class="muted" style="font-size:11px">'+(pct != null ? (pct+'% 已用') : '未知')+'</span></div>'+
-      '<div class="drawer-progress'+progressCls(used, limit)+'"><i style="width:'+(limit>0?Math.min(100,used/limit*100):0)+'%"></i></div>'+
-      '<div class="drawer-quota-row"><span class="muted">主配额</span><span class="mono">'+fmtNum(baseUsed)+' / '+fmtNum(baseLimit)+'</span></div>'+
-      '<div class="drawer-quota-row"><span class="muted">重置日</span><span class="mono">'+esc(fmtTs(resetAt))+'</span></div>'+
-      '<div class="drawer-quota-row"><span class="muted">免费试用</span><span class="mono">'+fmtNum(trialUsed)+' / '+fmtNum(trialLimit)+'</span></div>'+
-      '<div class="drawer-quota-row"><span class="muted">奖励总计'+(bonusCount!=null?' ('+bonusCount+')':'')+'</span><span class="mono">'+fmtNum(bonusUsed)+' / '+fmtNum(bonusLimit)+'</span></div>'+
-      (d.fetchedAt ? '<div class="muted" style="font-size:11px;margin-top:8px">缓存于 '+esc(fmtTs(d.fetchedAt))+'</div>' : '<div class="muted" style="font-size:11px;margin-top:8px">尚未拉取明细，点「刷新数据」</div>')+
-    '</div>';
+  let quotaHtml = '';
+  if (!compat) {
+    quotaHtml =
+      '<div class="drawer-sec" id="drawerQuotaSec">'+
+        '<div class="row" style="justify-content:space-between;align-items:center;margin-bottom:8px">'+
+          '<h3 style="margin:0">配额总览</h3>'+
+          '<button type="button" class="btn-sm primary" id="drawerRefreshQuota">刷新数据</button>'+
+        '</div>'+
+        '<div class="credit-row"><span class="mono"><b>'+fmtNum(used)+'</b> / '+fmtNum(limit > 0 ? limit : null)+'</span>'+
+          '<span class="muted" style="font-size:11px">'+(pct != null ? (pct+'% 已用') : '未知')+'</span></div>'+
+        '<div class="drawer-progress'+progressCls(used, limit)+'"><i style="width:'+(limit>0?Math.min(100,used/limit*100):0)+'%"></i></div>'+
+        '<div class="drawer-quota-row"><span class="muted">主配额</span><span class="mono">'+fmtNum(baseUsed)+' / '+fmtNum(baseLimit)+'</span></div>'+
+        '<div class="drawer-quota-row"><span class="muted">重置日</span><span class="mono">'+esc(fmtTs(resetAt))+'</span></div>'+
+        '<div class="drawer-quota-row"><span class="muted">免费试用</span><span class="mono">'+fmtNum(trialUsed)+' / '+fmtNum(trialLimit)+'</span></div>'+
+        '<div class="drawer-quota-row"><span class="muted">奖励总计'+(bonusCount!=null?' ('+bonusCount+')':'')+'</span><span class="mono">'+fmtNum(bonusUsed)+' / '+fmtNum(bonusLimit)+'</span></div>'+
+        (d.fetchedAt ? '<div class="muted" style="font-size:11px;margin-top:8px">缓存于 '+esc(fmtTs(d.fetchedAt))+'</div>' : '<div class="muted" style="font-size:11px;margin-top:8px">尚未拉取明细，点「刷新数据」</div>')+
+      '</div>';
+  }
 
   const machineId = a.machineId || a.deviceId || a.clientDeviceId || '';
-  let basicHtml =
-    '<div class="drawer-sec"><h3>基本信息</h3><dl class="dl">'+
-      '<dt>邮箱/ID</dt><dd class="mono">'+esc(a.email || a.id)+'</dd>'+
-      '<dt>账号别名</dt><dd>'+esc(a.label || '—')+'</dd>'+
-      '<dt>身份提供商</dt><dd>'+esc(provider)+'</dd>'+
-      '<dt>上游类型</dt><dd><span class="mono">'+esc(upstreamType)+'</span></dd>'+
-      (baseUrl ? '<dt>baseUrl</dt><dd class="mono">'+esc(baseUrl)+'</dd>' : '')+
-      (modelPrefix ? '<dt>modelPrefix</dt><dd class="mono">'+esc(modelPrefix)+'</dd>' : '')+
-      (upstreamType !== 'kiro' ? '<dt>upstreamApiKey</dt><dd class="mono">••••</dd>' : '')+
-      '<dt>用户 ID</dt><dd class="mono">'+esc(kiroUid || '—')+'</dd>'+
-      '<dt>机器码 / Machine ID</dt><dd>'+
-        '<div class="row" style="gap:6px;align-items:center;flex-wrap:wrap">'+
-          '<input class="tag-edit mono" id="drawerMachineId" style="flex:1;min-width:160px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px" value="'+esc(machineId)+'" placeholder="留空保存则自动生成" spellcheck="false"/>'+
-          '<button type="button" class="btn-sm primary" id="drawerSaveMachineId">保存</button>'+
-          '<button type="button" class="btn-sm" id="drawerRegenMachineId" title="生成新的 UUID 机器码并立即保存">重新生成</button>'+
+  let basicHtml = '';
+  if (compat) {
+    basicHtml =
+      '<div class="drawer-sec"><h3>兼容上游（可编辑）</h3>'+
+        '<p class="muted" style="font-size:11px;margin:0 0 10px">openai_compat / anthropic_compat 账号字段。清空 modelPrefix 并保存可去掉前缀；upstreamApiKey 留空则保留原密钥。</p>'+
+        '<div class="row" style="flex-direction:column;align-items:stretch;gap:8px">'+
+          '<label class="muted" style="font-size:12px">标签<input id="drawerCompatLabel" value="'+esc(a.label || '')+'" style="width:100%;margin-top:4px"/></label>'+
+          '<label class="muted" style="font-size:12px">上游类型'+
+            '<select id="drawerCompatUpstreamType" style="width:100%;margin-top:4px">'+
+              '<option value="openai_compat"'+(upstreamType==='openai_compat'?' selected':'')+'>openai_compat</option>'+
+              '<option value="anthropic_compat"'+(upstreamType==='anthropic_compat'?' selected':'')+'>anthropic_compat</option>'+
+            '</select>'+
+          '</label>'+
+          '<label class="muted" style="font-size:12px">baseUrl<input id="drawerCompatBaseUrl" class="mono" value="'+esc(baseUrl)+'" placeholder="https://api.openai.com/v1" style="width:100%;margin-top:4px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px"/></label>'+
+          '<label class="muted" style="font-size:12px">upstreamApiKey<input id="drawerCompatApiKey" type="password" value="" placeholder="•••• 留空保留原密钥" style="width:100%;margin-top:4px" autocomplete="new-password"/></label>'+
+          '<label class="muted" style="font-size:12px">modelPrefix<input id="drawerCompatModelPrefix" class="mono" value="'+esc(modelPrefix)+'" placeholder="可选；清空保存则移除" style="width:100%;margin-top:4px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px"/></label>'+
+          '<label class="muted" style="font-size:12px">defaultHeaders (JSON)<textarea id="drawerCompatHeaders" placeholder=\'{"x-custom":"1"}\' style="width:100%;min-height:64px;margin-top:4px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px">'+esc(headersJson)+'</textarea></label>'+
+          '<label class="muted" style="font-size:12px;display:flex;align-items:center;gap:8px">'+
+            '<input type="checkbox" id="drawerCompatEnabled"'+(a.enabled !== false ? ' checked' : '')+'/> 启用账号'+
+          '</label>'+
+          '<div class="row" style="gap:8px">'+
+            '<button type="button" class="btn-sm primary" id="drawerSaveCompat">保存兼容上游</button>'+
+            '<span class="muted" id="drawerCompatHint" style="font-size:11px"></span>'+
+          '</div>'+
         '</div>'+
-        '<div class="muted" style="font-size:11px;margin-top:4px">账号绑定的客户端身份；上游 User-Agent 后缀使用此值（非系统 MachineGuid，不按请求轮换）。留空保存会自动生成；导入无机器码时也会自动生成并持久化。</div>'+
-      '</dd>'+
-    '</dl></div>';
+        '<dl class="dl" style="margin-top:12px">'+
+          '<dt>邮箱/ID</dt><dd class="mono">'+esc(a.email || a.id)+'</dd>'+
+        '</dl>'+
+      '</div>';
+  } else {
+    basicHtml =
+      '<div class="drawer-sec"><h3>基本信息</h3><dl class="dl">'+
+        '<dt>邮箱/ID</dt><dd class="mono">'+esc(a.email || a.id)+'</dd>'+
+        '<dt>账号别名</dt><dd>'+esc(a.label || '—')+'</dd>'+
+        '<dt>身份提供商</dt><dd>'+esc(provider)+'</dd>'+
+        '<dt>上游类型</dt><dd><span class="mono">'+esc(upstreamType)+'</span></dd>'+
+        '<dt>用户 ID</dt><dd class="mono">'+esc(kiroUid || '—')+'</dd>'+
+        '<dt>机器码 / Machine ID</dt><dd>'+
+          '<div class="row" style="gap:6px;align-items:center;flex-wrap:wrap">'+
+            '<input class="tag-edit mono" id="drawerMachineId" style="flex:1;min-width:160px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px" value="'+esc(machineId)+'" placeholder="留空保存则自动生成" spellcheck="false"/>'+
+            '<button type="button" class="btn-sm primary" id="drawerSaveMachineId">保存</button>'+
+            '<button type="button" class="btn-sm" id="drawerRegenMachineId" title="生成新的 UUID 机器码并立即保存">重新生成</button>'+
+          '</div>'+
+          '<div class="muted" style="font-size:11px;margin-top:4px">账号绑定的客户端身份；上游 User-Agent 后缀使用此值（非系统 MachineGuid，不按请求轮换）。留空保存会自动生成；导入无机器码时也会自动生成并持久化。</div>'+
+        '</dd>'+
+      '</dl></div>';
+  }
 
-  let subHtml =
-    '<div class="drawer-sec"><h3>订阅详情</h3><dl class="dl">'+
-      '<dt>Region</dt><dd class="mono">'+esc(a.region || '—')+'</dd>'+
-      '<dt>Token 到期</dt><dd class="mono">'+esc(fmtTs(a.expiresAt))+'</dd>'+
-      '<dt>订阅类型</dt><dd class="mono">'+esc(subTitle || '—')+'</dd>'+
-      (overage ? '<dt>超额费率</dt><dd class="mono">'+esc(overage)+'</dd>' : '')+
-      '<dt>资源类型</dt><dd class="mono">'+esc(resourceType || '—')+'</dd>'+
-      (upgrade ? '<dt>可升级</dt><dd class="mono">'+esc(upgrade)+'</dd>' : '')+
-    '</dl></div>';
-
-  let modelsHtml =
-    '<div class="drawer-sec"><h3>账户可用模型</h3>'+
-      '<div class="drawer-empty">暂无按账号拉取的模型列表（ListAvailableModels 尚未接入）。聊天测试使用管理端内置目录，不代表该账号远程可用集。</div>'+
-    '</div>';
+  let subHtml = '';
+  let modelsHtml = '';
+  if (!compat) {
+    subHtml =
+      '<div class="drawer-sec"><h3>订阅详情</h3><dl class="dl">'+
+        '<dt>Region</dt><dd class="mono">'+esc(a.region || '—')+'</dd>'+
+        '<dt>Token 到期</dt><dd class="mono">'+esc(fmtTs(a.expiresAt))+'</dd>'+
+        '<dt>订阅类型</dt><dd class="mono">'+esc(subTitle || '—')+'</dd>'+
+        (overage ? '<dt>超额费率</dt><dd class="mono">'+esc(overage)+'</dd>' : '')+
+        '<dt>资源类型</dt><dd class="mono">'+esc(resourceType || '—')+'</dd>'+
+        (upgrade ? '<dt>可升级</dt><dd class="mono">'+esc(upgrade)+'</dd>' : '')+
+      '</dl></div>';
+    modelsHtml =
+      '<div class="drawer-sec"><h3>账户可用模型</h3>'+
+        '<div class="drawer-empty">暂无按账号拉取的模型列表（ListAvailableModels 尚未接入）。聊天测试使用管理端内置目录，不代表该账号远程可用集。</div>'+
+      '</div>';
+  }
 
   let proxyHtml = '';
   if (a.outboundPoolId || a.outboundExitId || (a.assignedExit && (a.assignedExit.poolId || a.assignedExit.exitId))) {
@@ -1131,6 +1174,60 @@ function renderAccountDrawer(a) {
   if (saveMid) saveMid.onclick = () => saveDrawerMachineId();
   const regenMid = $('drawerRegenMachineId');
   if (regenMid) regenMid.onclick = () => regenerateDrawerMachineId();
+  const saveCompat = $('drawerSaveCompat');
+  if (saveCompat) saveCompat.onclick = () => saveDrawerCompatFields();
+}
+
+async function saveDrawerCompatFields() {
+  if (!drawerAccountId) return;
+  const btn = $('drawerSaveCompat');
+  const hint = $('drawerCompatHint');
+  if (btn) { btn.disabled = true; btn.textContent = '保存中…'; }
+  if (hint) hint.textContent = '';
+  try {
+    const label = ($('drawerCompatLabel') && $('drawerCompatLabel').value.trim()) || '';
+    const upstreamType = $('drawerCompatUpstreamType') ? $('drawerCompatUpstreamType').value : 'openai_compat';
+    const baseUrl = $('drawerCompatBaseUrl') ? $('drawerCompatBaseUrl').value.trim() : '';
+    const apiKeyRaw = $('drawerCompatApiKey') ? $('drawerCompatApiKey').value.trim() : '';
+    const modelPrefix = $('drawerCompatModelPrefix') ? $('drawerCompatModelPrefix').value : '';
+    const headersRaw = $('drawerCompatHeaders') ? $('drawerCompatHeaders').value.trim() : '';
+    const enabled = $('drawerCompatEnabled') ? !!$('drawerCompatEnabled').checked : true;
+    if (!baseUrl) throw new Error('baseUrl 必填');
+    let defaultHeaders = null;
+    if (headersRaw) {
+      defaultHeaders = JSON.parse(headersRaw);
+      if (!defaultHeaders || typeof defaultHeaders !== 'object' || Array.isArray(defaultHeaders)) {
+        throw new Error('defaultHeaders 须为 JSON 对象');
+      }
+    }
+    const body = {
+      label: label || undefined,
+      upstreamType,
+      baseUrl,
+      modelPrefix, // empty string clears prefix
+      defaultHeaders,
+      enabled,
+    };
+    if (apiKeyRaw) body.upstreamApiKey = apiKeyRaw;
+    const r = await api('/accounts/' + encodeURIComponent(drawerAccountId), {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    });
+    if (r) patchAccountInState(r);
+    toast('兼容上游已保存');
+    if (hint) hint.textContent = '已保存';
+    if ($('drawerCompatApiKey')) $('drawerCompatApiKey').value = '';
+    const live = state.accounts.find(a => a.id === drawerAccountId);
+    if (live) renderAccountDrawer(live);
+    renderAccounts();
+  } catch (e) {
+    const msg = e.message || String(e);
+    if (hint) hint.textContent = msg;
+    toast(msg, true);
+  } finally {
+    const b = $('drawerSaveCompat');
+    if (b) { b.disabled = false; b.textContent = '保存兼容上游'; }
+  }
 }
 
 async function saveDrawerMachineId() {
