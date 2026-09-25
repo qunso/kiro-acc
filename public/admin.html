@@ -618,6 +618,51 @@ const titles = {
   api: 'API 反代', subs: '订阅用量', webhooks: 'Webhook', diagnose: '诊断',
   probe: 'TLS 探测', settings: '设置 / 关于'
 };
+/** Internal tab id → canonical hash slug (#/<slug>). */
+const TAB_TO_ROUTE = {
+  home: 'dashboard',
+  accounts: 'accounts',
+  pools: 'pools',
+  exits: 'exits',
+  api: 'api-keys',
+  subs: 'subscriptions',
+  webhooks: 'webhooks',
+  diagnose: 'diagnostics',
+  import: 'import',
+  probe: 'tls',
+  settings: 'settings',
+};
+const ALL_TABS = Object.keys(TAB_TO_ROUTE);
+/** Hash slug (and aliases) → tab id. Empty / unknown → dashboard. */
+const ROUTE_TO_TAB = {
+  '': 'home',
+  dashboard: 'home',
+  home: 'home',
+  accounts: 'accounts',
+  pools: 'pools',
+  exits: 'exits',
+  'api-keys': 'api',
+  api: 'api',
+  subscriptions: 'subs',
+  subs: 'subs',
+  webhooks: 'webhooks',
+  diagnostics: 'diagnose',
+  diagnose: 'diagnose',
+  import: 'import',
+  tls: 'probe',
+  probe: 'probe',
+  settings: 'settings',
+};
+function parseHashRoute() {
+  let h = (location.hash || '').replace(/^#/, '');
+  if (h.startsWith('/')) h = h.slice(1);
+  h = h.split(/[?#]/)[0].trim().toLowerCase();
+  if (Object.prototype.hasOwnProperty.call(ROUTE_TO_TAB, h)) return ROUTE_TO_TAB[h];
+  return null;
+}
+function hashForTab(name) {
+  return '#/' + (TAB_TO_ROUTE[name] || name);
+}
 const state = {
   exits: [], pools: [], accounts: [], groups: [], tags: [], checked: new Set(),
   selected: new Set(), usage: null, apiMeta: null, apiKeys: [], modelMap: {},
@@ -1419,9 +1464,11 @@ async function reloadRequestLog() {
   } catch (e) { toast(e.message, true); }
 }
 
-function showTab(name) {
+function showTab(name, opts) {
+  opts = opts || {};
+  if (!ALL_TABS.includes(name)) name = 'home';
   document.querySelectorAll('#nav button').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
-  ['home','accounts','pools','exits','import','api','subs','webhooks','diagnose','probe','settings'].forEach(t => {
+  ALL_TABS.forEach(t => {
     const el = $('tab-'+t); if (el) el.hidden = t !== name;
   });
   $('pageTitle').textContent = titles[name] || name;
@@ -1435,7 +1482,22 @@ function showTab(name) {
   if (name === 'diagnose') fillDiagAccounts();
   if (name === 'home') renderDashboard();
   if (name === 'settings') loadSettings();
+  if (!opts.skipHash) {
+    const next = hashForTab(name);
+    if ((location.hash || '') !== next) {
+      if (opts.replace) history.replaceState(null, '', next);
+      else location.hash = next;
+    }
+  }
 }
+function applyRouteFromHash() {
+  const tab = parseHashRoute() || 'home';
+  showTab(tab, { skipHash: true });
+  // Canonicalize: bare /admin/ui, #/, aliases (#/home), unknown → #/<canonical>
+  const next = hashForTab(tab);
+  if ((location.hash || '') !== next) history.replaceState(null, '', next);
+}
+window.addEventListener('hashchange', () => applyRouteFromHash());
 
 function obsCard(title, obs) {
   if (!obs) return '';
@@ -2204,6 +2266,7 @@ $('importConfig').onclick = async () => {
   } catch (e) { toast(e.message, true); }
 };
 
+applyRouteFromHash();
 refresh();
 </script>
 </body>
