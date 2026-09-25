@@ -1706,7 +1706,7 @@ export function createAdminRoutes(
     const profileArn = resolveProfileArn(account)
     const payload = openaiToKiro(
       {
-        model,
+        model: mappedModel,
         messages: [{ role: 'user', content: message }],
       },
       profileArn,
