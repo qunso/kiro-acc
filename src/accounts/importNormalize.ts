@@ -4,7 +4,8 @@
  * (`email----password----RefreshToken----ClientId----ClientSecret----idp`).
  * Account passwords from card keys are not stored.
  */
-import type { AccountCreateInput, AccountRecord } from './types.js'
+import type { AccountCreateInput, AccountRecord, UpstreamType } from './types.js'
+import { resolveUpstreamType, validateAccountCredentials } from './upstream.js'
 
 export interface ImportWarning {
   index: number
@@ -31,6 +32,10 @@ const TOKEN_KEYS = {
   id: ['id'],
   expiresAt: ['expiresAt', 'expires_at', 'ExpiresAt'],
   machineId: ['machineId', 'machine_id', 'MachineId', 'machineCode', 'machine_code', '机器码', 'deviceId', 'device_id', 'DeviceId', 'clientDeviceId', 'client_device_id'],
+  upstreamType: ['upstreamType', 'upstream_type', 'accountType', 'account_type', 'type'],
+  baseUrl: ['baseUrl', 'base_url', 'BaseUrl', 'upstreamBaseUrl', 'upstream_base_url'],
+  upstreamApiKey: ['upstreamApiKey', 'upstream_api_key', 'apiKey', 'api_key', 'ApiKey'],
+  modelPrefix: ['modelPrefix', 'model_prefix'],
 } as const
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -128,6 +133,27 @@ function mapAuth(
   return { provider }
 }
 
+function parseDefaultHeaders(raw: unknown): Record<string, string> | undefined {
+  if (!raw) return undefined
+  if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw) as unknown
+      return parseDefaultHeaders(parsed)
+    } catch {
+      return undefined
+    }
+  }
+  if (typeof raw !== 'object' || Array.isArray(raw)) return undefined
+  const out: Record<string, string> = {}
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (v == null) continue
+    const key = String(k).trim()
+    if (!key) continue
+    out[key] = String(v)
+  }
+  return Object.keys(out).length ? out : undefined
+}
+
 function toCreateInput(raw: Record<string, unknown>, index: number): {
   account?: AccountCreateInput
   warning?: ImportWarning
@@ -135,9 +161,35 @@ function toCreateInput(raw: Record<string, unknown>, index: number): {
   const flat = flattenAccount(raw)
   const accessToken = asString(pick(flat, TOKEN_KEYS.accessToken))
   const refreshToken = asString(pick(flat, TOKEN_KEYS.refreshToken))
-  if (!accessToken && !refreshToken) {
-    return { warning: { index, message: 'missing accessToken and refreshToken' } }
+  const upstreamTypeRaw = asString(pick(flat, TOKEN_KEYS.upstreamType))
+  const baseUrl = asString(pick(flat, TOKEN_KEYS.baseUrl))
+  const upstreamApiKey = asString(pick(flat, TOKEN_KEYS.upstreamApiKey))
+  // Infer compat when baseUrl+key present even if upstreamType omitted.
+  let upstreamType: UpstreamType = resolveUpstreamType({
+    upstreamType: (upstreamTypeRaw as AccountRecord['upstreamType']) || undefined,
+  })
+  if (upstreamType === 'kiro' && baseUrl && upstreamApiKey) {
+    // Default inferred relays to openai_compat unless explicitly anthropic.
+    const hint = (upstreamTypeRaw || '').toLowerCase()
+    upstreamType =
+      hint.includes('anthropic') || hint.includes('claude') ? 'anthropic_compat' : 'openai_compat'
   }
+
+  if (upstreamType === 'kiro') {
+    if (!accessToken && !refreshToken) {
+      return { warning: { index, message: 'missing accessToken and refreshToken' } }
+    }
+  } else {
+    const cred = validateAccountCredentials({
+      upstreamType,
+      baseUrl,
+      upstreamApiKey,
+    })
+    if (!cred.ok) {
+      return { warning: { index, message: cred.error || 'invalid compat account' } }
+    }
+  }
+
   const email = asString(pick(flat, TOKEN_KEYS.email))
   const explicitId = asString(pick(flat, TOKEN_KEYS.id))
   const clientId = asString(pick(flat, TOKEN_KEYS.clientId))
@@ -148,11 +200,18 @@ function toCreateInput(raw: Record<string, unknown>, index: number): {
     !!(clientId && clientSecret),
     !!refreshToken,
   )
-  const label = asString(pick(flat, TOKEN_KEYS.label)) || email
+  const label =
+    asString(pick(flat, TOKEN_KEYS.label)) || email || (baseUrl ? `relay:${baseUrl}` : undefined)
   const group = asString(flat.group)
   const tags = Array.isArray(flat.tags) ? flat.tags.map((t) => String(t)) : undefined
   const input: AccountCreateInput = {
-    id: explicitId || (email ? `acct:${email.toLowerCase()}` : undefined),
+    id:
+      explicitId ||
+      (email
+        ? `acct:${email.toLowerCase()}`
+        : upstreamType !== 'kiro' && baseUrl
+          ? `relay:${upstreamType}:${baseUrl.replace(/^https?:\/\//i, '').replace(/\/+$/, '')}`
+          : undefined),
     label: label || explicitId || 'account',
     email,
     accessToken: accessToken || '',
@@ -163,6 +222,11 @@ function toCreateInput(raw: Record<string, unknown>, index: number): {
     profileArn: asString(pick(flat, TOKEN_KEYS.profileArn)),
     authMethod: auth.authMethod,
     provider: auth.provider,
+    upstreamType,
+    baseUrl,
+    upstreamApiKey,
+    defaultHeaders: parseDefaultHeaders(flat.defaultHeaders ?? flat.headers),
+    modelPrefix: asString(pick(flat, TOKEN_KEYS.modelPrefix)),
     expiresAt: parseExpiry(pick(flat, TOKEN_KEYS.expiresAt)),
     enabled: flat.enabled === false ? false : true,
     group,
@@ -191,6 +255,8 @@ function collectItems(body: unknown): { mode: 'merge' | 'replace'; items: unknow
   if (
     pick(body, TOKEN_KEYS.accessToken) ||
     pick(body, TOKEN_KEYS.refreshToken) ||
+    pick(body, TOKEN_KEYS.baseUrl) ||
+    pick(body, TOKEN_KEYS.upstreamApiKey) ||
     isRecord(body.credentials)
   ) {
     return { mode, items: [body], warnings }

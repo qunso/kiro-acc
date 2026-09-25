@@ -29,6 +29,9 @@ export interface AccountQuotaDetail {
   fetchedAt?: number
 }
 
+/** How outbound LLM traffic is sent for this account. Default/absent = kiro. */
+export type UpstreamType = 'kiro' | 'openai_compat' | 'anthropic_compat'
+
 export interface AccountRecord {
   id: string
   label: string
@@ -40,6 +43,22 @@ export interface AccountRecord {
   region?: string
   authMethod?: 'social' | 'idc' | 'IdC' | 'external_idp' | 'builder_id'
   provider?: string
+  /**
+   * Upstream protocol for this account in the pool.
+   * - `kiro` (default): translate to CodeWhisperer / Amazon Q
+   * - `openai_compat`: relay OpenAI-style chat/completions to baseUrl
+   * - `anthropic_compat`: relay Anthropic Messages to baseUrl
+   * Distinct from `provider` (identity IdP: Google / Github / BuilderId).
+   */
+  upstreamType?: UpstreamType
+  /** Required for *_compat: upstream API root (trailing slash ok). */
+  baseUrl?: string
+  /** Required for *_compat: Bearer / x-api-key sent to upstream. */
+  upstreamApiKey?: string
+  /** Optional extra headers merged into upstream requests. */
+  defaultHeaders?: Record<string, string>
+  /** Optional prefix prepended to client model id when forwarding. */
+  modelPrefix?: string
   profileArn?: string
   expiresAt?: number
   enabled: boolean

@@ -12,6 +12,11 @@ import { JsonStore } from '../storage/jsonStore.js'
 import { AccountPool } from '../pool/accountPool.js'
 import type { AppConfig } from '../config.js'
 import { generateMachineId, pickStoredMachineId } from './machineId.js'
+import {
+  isCompatUpstream,
+  resolveUpstreamType,
+  validateAccountCredentials,
+} from './upstream.js'
 
 const emptyUsage = (): UsageStore => ({
   records: [],
@@ -164,9 +169,9 @@ export class AccountStore {
     const now = Date.now()
     const id = input.id || randomUUID()
     if (this.accounts.has(id)) throw new Error(`Account id already exists: ${id}`)
-    if (!input.accessToken && !input.refreshToken) {
-      throw new Error('accessToken or refreshToken is required')
-    }
+    const cred = validateAccountCredentials(input)
+    if (!cred.ok) throw new Error(cred.error || 'invalid account credentials')
+    const upstreamType = resolveUpstreamType(input)
     const machineId =
       pickStoredMachineId({ machineId: input.machineId, deviceId: input.deviceId }) ||
       generateMachineId()
@@ -174,7 +179,11 @@ export class AccountStore {
       ...input,
       id,
       accessToken: input.accessToken || '',
-      label: input.label || input.email || id.slice(0, 8),
+      upstreamType,
+      baseUrl: input.baseUrl?.trim() || undefined,
+      upstreamApiKey: input.upstreamApiKey?.trim() || undefined,
+      modelPrefix: input.modelPrefix?.trim() || undefined,
+      label: input.label || input.email || input.baseUrl || id.slice(0, 8),
       enabled: input.enabled !== false,
       machineId,
       deviceId: input.deviceId || machineId,
@@ -191,6 +200,14 @@ export class AccountStore {
     const existing = this.accounts.get(id)
     if (!existing) throw new Error(`Account not found: ${id}`)
 
+    const mergedForValidation = { ...existing, ...patch }
+    // Compat accounts must keep baseUrl + upstreamApiKey after every update.
+    // Kiro accounts stay lenient on partial patches (token refresh, labels, etc.).
+    if (isCompatUpstream(mergedForValidation)) {
+      const full = validateAccountCredentials(mergedForValidation)
+      if (!full.ok) throw new Error(full.error || 'invalid compat account')
+    }
+
     // Apply patch but never let undefined machineId/deviceId from Partial spreads wipe
     // a stored value. Explicit empty/null regenerates; non-empty replaces.
     const next: AccountRecord = {
@@ -198,6 +215,18 @@ export class AccountStore {
       ...patch,
       id,
       updatedAt: Date.now(),
+    }
+    if ('upstreamType' in patch || isCompatUpstream(next)) {
+      next.upstreamType = resolveUpstreamType(next)
+    }
+    if (typeof patch.baseUrl === 'string') {
+      next.baseUrl = patch.baseUrl.trim() || undefined
+    }
+    if (typeof patch.upstreamApiKey === 'string') {
+      next.upstreamApiKey = patch.upstreamApiKey.trim() || undefined
+    }
+    if (typeof patch.modelPrefix === 'string') {
+      next.modelPrefix = patch.modelPrefix.trim() || undefined
     }
 
     if ('machineId' in patch || 'deviceId' in patch) {
