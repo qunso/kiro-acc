@@ -59,6 +59,15 @@ export interface AccountRecord {
   defaultHeaders?: Record<string, string>
   /** Optional prefix prepended to client model id when forwarding. */
   modelPrefix?: string
+  /**
+   * Manual model allowlist. When non-empty, account only serves requests whose
+   * model matches (prefix-aware). Takes precedence over upstreamModels cache.
+   */
+  supportedModels?: string[]
+  /** Cached upstream model ids from GET .../models (compat accounts). */
+  upstreamModels?: string[]
+  /** When upstreamModels was last refreshed (epoch ms). */
+  upstreamModelsFetchedAt?: number
   profileArn?: string
   expiresAt?: number
   enabled: boolean

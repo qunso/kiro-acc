@@ -14,6 +14,7 @@ import type { AppConfig } from '../config.js'
 import { generateMachineId, pickStoredMachineId } from './machineId.js'
 import {
   isCompatUpstream,
+  normalizeModelIdList,
   resolveUpstreamType,
   validateAccountCredentials,
 } from './upstream.js'
@@ -183,6 +184,15 @@ export class AccountStore {
       baseUrl: input.baseUrl?.trim() || undefined,
       upstreamApiKey: input.upstreamApiKey?.trim() || undefined,
       modelPrefix: input.modelPrefix?.trim() || undefined,
+      supportedModels: (() => {
+        const list = normalizeModelIdList(input.supportedModels)
+        return list.length ? list : undefined
+      })(),
+      upstreamModels: (() => {
+        const list = normalizeModelIdList(input.upstreamModels)
+        return list.length ? list : undefined
+      })(),
+      upstreamModelsFetchedAt: input.upstreamModelsFetchedAt,
       label: input.label || input.email || input.baseUrl || id.slice(0, 8),
       enabled: input.enabled !== false,
       machineId,
@@ -254,6 +264,20 @@ export class AccountStore {
       } else {
         next.defaultHeaders = undefined
       }
+    }
+
+    if ('supportedModels' in patch) {
+      const list = normalizeModelIdList(patch.supportedModels)
+      next.supportedModels = list.length ? list : undefined
+    }
+    if ('upstreamModels' in patch) {
+      const list = normalizeModelIdList(patch.upstreamModels)
+      next.upstreamModels = list.length ? list : undefined
+    }
+    if (typeof patch.upstreamModelsFetchedAt === 'number') {
+      next.upstreamModelsFetchedAt = patch.upstreamModelsFetchedAt
+    } else if (patch.upstreamModelsFetchedAt === null) {
+      next.upstreamModelsFetchedAt = undefined
     }
 
     if ('machineId' in patch || 'deviceId' in patch) {

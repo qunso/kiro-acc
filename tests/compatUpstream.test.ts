@@ -6,7 +6,9 @@ import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   accountSupportsApiStyle,
+  accountSupportsModel,
   applyModelPrefix,
+  effectiveModelAllowlist,
   isCompatUpstream,
   joinCompatUrl,
   resolveUpstreamType,
@@ -19,6 +21,49 @@ import { ExitsStore } from '../src/exits/store.js'
 import { PoolsStore } from '../src/pools/store.js'
 import { createServer } from '../src/server.js'
 import type { AppConfig } from '../src/config.js'
+
+
+describe('accountSupportsModel / effectiveModelAllowlist', () => {
+  it('unrestricted when both allowlist and cache empty', () => {
+    expect(effectiveModelAllowlist({})).toBeNull()
+    expect(accountSupportsModel({}, 'gpt-4')).toBe(true)
+    expect(accountSupportsModel({ supportedModels: [], upstreamModels: [] }, 'any')).toBe(true)
+  })
+
+  it('manual supportedModels wins over cache', () => {
+    const acc = {
+      supportedModels: ['gpt-4o'],
+      upstreamModels: ['claude-3', 'gpt-4o'],
+    }
+    expect(effectiveModelAllowlist(acc)).toEqual(['gpt-4o'])
+    expect(accountSupportsModel(acc, 'gpt-4o')).toBe(true)
+    expect(accountSupportsModel(acc, 'claude-3')).toBe(false)
+  })
+
+  it('falls back to upstreamModels cache when allowlist empty', () => {
+    const acc = { upstreamModels: ['openai/gpt-4', 'openai/gpt-4o'] }
+    expect(accountSupportsModel(acc, 'openai/gpt-4')).toBe(true)
+    expect(accountSupportsModel(acc, 'gpt-3.5')).toBe(false)
+  })
+
+  it('matches with modelPrefix apply/strip', () => {
+    const acc = {
+      modelPrefix: 'openai/',
+      supportedModels: ['gpt-4o'],
+    }
+    expect(accountSupportsModel(acc, 'gpt-4o')).toBe(true)
+    expect(accountSupportsModel(acc, 'openai/gpt-4o')).toBe(true)
+    expect(
+      accountSupportsModel({ modelPrefix: 'openai/', supportedModels: ['openai/gpt-4o'] }, 'gpt-4o'),
+    ).toBe(true)
+    expect(accountSupportsModel(acc, 'gpt-4')).toBe(false)
+  })
+
+  it('rejects missing model when filter active', () => {
+    expect(accountSupportsModel({ supportedModels: ['a'] }, '')).toBe(false)
+    expect(accountSupportsModel({ supportedModels: ['a'] }, undefined)).toBe(false)
+  })
+})
 
 describe('joinCompatUrl', () => {
   it('joins origin + /v1 path', () => {
@@ -422,5 +467,157 @@ describe('compat relay routing through pool', () => {
     expect(cleared.modelPrefix).toBe('tmp/')
     const empty = await accountsStore.update(createdBody.id, { modelPrefix: '' })
     expect(empty.modelPrefix).toBeUndefined()
+  })
+
+  it('skips accounts whose supportedModels do not match request model', async () => {
+    await startUpstream()
+    dir = await fs.mkdtemp(path.join(os.tmpdir(), 'kiro-compat-model-'))
+    const config: AppConfig = {
+      ...loadConfig(),
+      dataDir: dir,
+      apiKey: 'test-key',
+      adminToken: 'test-admin',
+    }
+    const accountsStore = new AccountStore(dir, config)
+    await accountsStore.init()
+    const exits = new ExitsStore(dir)
+    await exits.init()
+    const pools = new PoolsStore(dir)
+    await pools.init()
+    const app = createServer(accountsStore, config, exits, pools)
+
+    await accountsStore.create({
+      label: 'only-gpt4',
+      upstreamType: 'openai_compat',
+      baseUrl: upstreamUrl,
+      upstreamApiKey: 'sk-test-openai',
+      supportedModels: ['gpt-4'],
+      enabled: true,
+      accessToken: '',
+    })
+
+    const denied = await app.request('/v1/chat/completions', {
+      method: 'POST',
+      headers: { authorization: 'Bearer test-key', 'content-type': 'application/json' },
+      body: JSON.stringify({
+        model: 'gpt-4o',
+        messages: [{ role: 'user', content: 'hi' }],
+      }),
+    })
+    expect(denied.status).toBe(503)
+
+    const ok = await app.request('/v1/chat/completions', {
+      method: 'POST',
+      headers: { authorization: 'Bearer test-key', 'content-type': 'application/json' },
+      body: JSON.stringify({
+        model: 'gpt-4',
+        messages: [{ role: 'user', content: 'hi' }],
+      }),
+    })
+    expect(ok.status).toBe(200)
+  })
+
+  it('uses upstreamModels cache when supportedModels empty', async () => {
+    await startUpstream()
+    dir = await fs.mkdtemp(path.join(os.tmpdir(), 'kiro-compat-cache-'))
+    const config: AppConfig = {
+      ...loadConfig(),
+      dataDir: dir,
+      apiKey: 'test-key',
+      adminToken: 'test-admin',
+    }
+    const accountsStore = new AccountStore(dir, config)
+    await accountsStore.init()
+    const exits = new ExitsStore(dir)
+    await exits.init()
+    const pools = new PoolsStore(dir)
+    await pools.init()
+    const app = createServer(accountsStore, config, exits, pools)
+
+    await accountsStore.create({
+      label: 'cached',
+      upstreamType: 'openai_compat',
+      baseUrl: upstreamUrl,
+      upstreamApiKey: 'sk-test-openai',
+      upstreamModels: ['special-model'],
+      enabled: true,
+      accessToken: '',
+    })
+
+    const denied = await app.request('/v1/chat/completions', {
+      method: 'POST',
+      headers: { authorization: 'Bearer test-key', 'content-type': 'application/json' },
+      body: JSON.stringify({
+        model: 'gpt-4',
+        messages: [{ role: 'user', content: 'hi' }],
+      }),
+    })
+    expect(denied.status).toBe(503)
+
+    const ok = await app.request('/v1/chat/completions', {
+      method: 'POST',
+      headers: { authorization: 'Bearer test-key', 'content-type': 'application/json' },
+      body: JSON.stringify({
+        model: 'special-model',
+        messages: [{ role: 'user', content: 'hi' }],
+      }),
+    })
+    expect(ok.status).toBe(200)
+  })
+
+  it('refresh-models caches OpenAI-style /v1/models list', async () => {
+    const modelsServer = createHttpServer((req, res) => {
+      if (req.url === '/v1/models' || req.url === '/models') {
+        res.writeHead(200, { 'content-type': 'application/json' })
+        res.end(JSON.stringify({ data: [{ id: 'gpt-4o' }, { id: 'gpt-4' }] }))
+        return
+      }
+      res.writeHead(404)
+      res.end('no')
+    })
+    await new Promise<void>((resolve) => modelsServer.listen(0, '127.0.0.1', resolve))
+    const addr = modelsServer.address() as AddressInfo
+    const modelsUrl = `http://127.0.0.1:${addr.port}/v1`
+
+    dir = await fs.mkdtemp(path.join(os.tmpdir(), 'kiro-compat-refresh-'))
+    const config: AppConfig = {
+      ...loadConfig(),
+      dataDir: dir,
+      apiKey: 'test-key',
+      adminToken: 'test-admin',
+    }
+    const accountsStore = new AccountStore(dir, config)
+    await accountsStore.init()
+    const exits = new ExitsStore(dir)
+    await exits.init()
+    const pools = new PoolsStore(dir)
+    await pools.init()
+    const app = createServer(accountsStore, config, exits, pools)
+
+    const created = await accountsStore.create({
+      label: 'refresh-me',
+      upstreamType: 'openai_compat',
+      baseUrl: modelsUrl,
+      upstreamApiKey: 'sk-test',
+      enabled: true,
+      accessToken: '',
+    })
+
+    const res = await app.request(`/admin/accounts/${created.id}/refresh-models`, {
+      method: 'POST',
+      headers: { 'x-admin-token': 'test-admin' },
+    })
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as {
+      models: string[]
+      account: { upstreamModels?: string[]; upstreamModelsFetchedAt?: number }
+    }
+    expect(body.models).toEqual(['gpt-4o', 'gpt-4'])
+    expect(body.account.upstreamModels).toEqual(['gpt-4o', 'gpt-4'])
+    expect(body.account.upstreamModelsFetchedAt).toBeTypeOf('number')
+
+    await new Promise<void>((resolve, reject) => {
+      modelsServer.close((err) => (err ? reject(err) : resolve()))
+    })
   })
 })
