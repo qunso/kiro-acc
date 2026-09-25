@@ -33,6 +33,16 @@ import {
   signalAccountSuspended,
   signalRefreshFailed,
 } from '../webhooks/signals.js'
+import {
+  accountSupportsApiStyle,
+  isCompatUpstream,
+  resolveUpstreamType,
+} from '../accounts/upstream.js'
+import {
+  CompatUpstreamError,
+  forwardOpenAiChatCompletions,
+  usageFromOpenAiSseText,
+} from './compatRelay.js'
 
 export function listModelsHandler() {
   return (c: Context) =>
@@ -129,7 +139,81 @@ export function chatCompletionsHandler(
         )
       }
 
-      // ensure token fresh
+      // Skip accounts that cannot serve OpenAI-style chat/completions (e.g. anthropic_compat).
+      if (!accountSupportsApiStyle(account, 'openai')) {
+        tried.add(account.id)
+        lastError = new Error(
+          `Account ${account.id} upstreamType=${resolveUpstreamType(account)} cannot serve /v1/chat/completions`,
+        )
+        continue
+      }
+
+      // ---- openai_compat: relay to baseUrl (no Kiro translate / token refresh) ----
+      if (isCompatUpstream(account) && resolveUpstreamType(account) === 'openai_compat') {
+        const started = Date.now()
+        try {
+          const fwd = await forwardOpenAiChatCompletions(
+            account,
+            body as unknown as Record<string, unknown>,
+            { signal: c.req.raw.signal },
+          )
+          if (stream) {
+            return await handleCompatOpenAiStream(c, store, account.id, body, fwd.response, started)
+          }
+          const responseTime = Date.now() - started
+          const usage = fwd.usage
+          store.pool.recordSuccess(
+            account.id,
+            usage.inputTokens + usage.outputTokens,
+            usage.inputTokens,
+            usage.outputTokens,
+            responseTime,
+          )
+          await recordProxyUsage(store, {
+            ...apiKeyFromContext(c),
+            timestamp: Date.now(),
+            accountId: account.id,
+            model: usage.modelId || body.model || 'unknown',
+            inputTokens: usage.inputTokens,
+            outputTokens: usage.outputTokens,
+            success: true,
+            responseTimeMs: responseTime,
+          }, { path: '/v1/chat/completions', apiStyle: 'openai', status: 200 })
+          return c.json(fwd.json)
+        } catch (err) {
+          lastError = err instanceof Error ? err : new Error(String(err))
+          const status = err instanceof CompatUpstreamError ? err.statusCode : 500
+          const errorType = classifyError(status)
+          store.pool.recordError(account.id, errorType, status)
+          void maybeSignalAllQuotaExhausted(store)
+          await recordProxyUsage(store, {
+            ...apiKeyFromContext(c),
+            timestamp: Date.now(),
+            accountId: account.id,
+            model: body.model || 'unknown',
+            inputTokens: 0,
+            outputTokens: 0,
+            success: false,
+            error: lastError.message,
+            responseTimeMs: Date.now() - started,
+          }, { path: '/v1/chat/completions', apiStyle: 'openai', status: status >= 400 && status < 600 ? status : 502 })
+          tried.add(account.id)
+          if (errorType === ErrorType.FATAL || attempt === maxRetries) {
+            return c.json(
+              {
+                error: {
+                  message: lastError.message,
+                  type: 'upstream_error',
+                  code: `http_${status}`,
+                },
+              },
+              status >= 400 && status < 600 ? (status as 400) : 502,
+            )
+          }
+          continue
+        }
+      }
+
       if (isTokenExpiringSoon(account, refreshBefore) && account.refreshToken) {
         const result = await refreshAccountToken(account)
         if (result.success && result.accessToken) {
@@ -389,3 +473,77 @@ async function handleStream(
     },
   })
 }
+
+
+/** Passthrough upstream OpenAI SSE; scrape usage from a final chunk when present. */
+async function handleCompatOpenAiStream(
+  c: Context,
+  store: AccountStore,
+  accountId: string,
+  body: OpenAIChatRequest,
+  upstream: Response,
+  started: number,
+) {
+  const reader = upstream.body?.getReader()
+  if (!reader) {
+    return c.json({ error: { message: 'Upstream returned empty stream', type: 'upstream_error' } }, 502)
+  }
+  const decoder = new TextDecoder()
+  let collected = ''
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      try {
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+          if (value) {
+            collected += decoder.decode(value, { stream: true })
+            controller.enqueue(value)
+          }
+        }
+        collected += decoder.decode()
+        controller.close()
+        const scraped = usageFromOpenAiSseText(collected)
+        const responseTime = Date.now() - started
+        const inTok = scraped?.inputTokens ?? 0
+        const outTok = scraped?.outputTokens ?? 0
+        store.pool.recordSuccess(accountId, inTok + outTok, inTok, outTok, responseTime)
+        await recordProxyUsage(store, {
+          ...apiKeyFromContext(c),
+          timestamp: Date.now(),
+          accountId,
+          model: scraped?.modelId || body.model || 'unknown',
+          inputTokens: inTok,
+          outputTokens: outTok,
+          success: true,
+          responseTimeMs: responseTime,
+        }, { path: '/v1/chat/completions', apiStyle: 'openai', status: 200 })
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        store.pool.recordError(accountId, ErrorType.FATAL, 502)
+        controller.error(err)
+        await recordProxyUsage(store, {
+          ...apiKeyFromContext(c),
+          timestamp: Date.now(),
+          accountId,
+          model: body.model || 'unknown',
+          inputTokens: 0,
+          outputTokens: 0,
+          success: false,
+          error: message,
+          responseTimeMs: Date.now() - started,
+        }, { path: '/v1/chat/completions', apiStyle: 'openai', status: 502 })
+      }
+    },
+  })
+  const contentType = upstream.headers.get('content-type') || 'text/event-stream; charset=utf-8'
+  return new Response(stream, {
+    status: upstream.status,
+    headers: {
+      'Content-Type': contentType,
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive',
+    },
+  })
+}
+

@@ -26,6 +26,15 @@ import {
   signalAccountSuspended,
   signalRefreshFailed,
 } from '../webhooks/signals.js'
+import {
+  accountSupportsApiStyle,
+  isCompatUpstream,
+  resolveUpstreamType,
+} from '../accounts/upstream.js'
+import {
+  CompatUpstreamError,
+  forwardAnthropicMessages,
+} from './compatRelay.js'
 
 export interface MessagesHandlerDeps {
   exits?: ExitsStore
@@ -135,6 +144,73 @@ export function messagesHandler(
           'api_error',
           lastError?.message || 'No available accounts in pool',
         )
+      }
+
+// Skip accounts that cannot serve Anthropic Messages (e.g. openai_compat).
+      if (!accountSupportsApiStyle(account, 'anthropic')) {
+        tried.add(account.id)
+        lastError = new Error(
+          `Account ${account.id} upstreamType=${resolveUpstreamType(account)} cannot serve /v1/messages`,
+        )
+        continue
+      }
+
+      // ---- anthropic_compat: relay to baseUrl (no Kiro translate / token refresh) ----
+      if (isCompatUpstream(account) && resolveUpstreamType(account) === 'anthropic_compat') {
+        const started = Date.now()
+        try {
+          const fwd = await forwardAnthropicMessages(
+            account,
+            body as unknown as Record<string, unknown>,
+            { signal: c.req.raw.signal },
+          )
+          if (body.stream) {
+            return await handleCompatAnthropicStream(c, store, account.id, body, fwd.response, started)
+          }
+          const responseTime = Date.now() - started
+          const usage = fwd.usage
+          store.pool.recordSuccess(
+            account.id,
+            usage.inputTokens + usage.outputTokens,
+            usage.inputTokens,
+            usage.outputTokens,
+            responseTime,
+          )
+          await recordProxyUsage(store, {
+            ...apiKeyFromContext(c),
+            timestamp: Date.now(),
+            accountId: account.id,
+            model: usage.modelId || body.model || 'unknown',
+            inputTokens: usage.inputTokens,
+            outputTokens: usage.outputTokens,
+            success: true,
+            responseTimeMs: responseTime,
+          }, { path: '/v1/messages', apiStyle: 'anthropic', status: 200 })
+          return c.json(fwd.json)
+        } catch (err) {
+          lastError = err instanceof Error ? err : new Error(String(err))
+          const status = err instanceof CompatUpstreamError ? err.statusCode : 500
+          const errorType = classifyError(status)
+          store.pool.recordError(account.id, errorType, status)
+          void maybeSignalAllQuotaExhausted(store)
+          await recordProxyUsage(store, {
+            ...apiKeyFromContext(c),
+            timestamp: Date.now(),
+            accountId: account.id,
+            model: body.model || 'unknown',
+            inputTokens: 0,
+            outputTokens: 0,
+            success: false,
+            error: lastError.message,
+            responseTimeMs: Date.now() - started,
+          }, { path: '/v1/messages', apiStyle: 'anthropic', status: status >= 400 && status < 600 ? status : 502 })
+          tried.add(account.id)
+          if (errorType === ErrorType.FATAL || attempt === maxRetries) {
+            const http = status >= 400 && status < 600 ? status : 502
+            return anthropicError(c, http, 'api_error', lastError.message)
+          }
+          continue
+        }
       }
 
       if (isTokenExpiringSoon(account, refreshBefore) && account.refreshToken) {
@@ -322,3 +398,69 @@ async function handleClaudeStream(
     },
   })
 }
+
+
+/** Passthrough upstream Anthropic SSE; usage recorded as 0 unless scraped later. */
+async function handleCompatAnthropicStream(
+  c: Context,
+  store: AccountStore,
+  accountId: string,
+  body: ClaudeMessagesRequest,
+  upstream: Response,
+  started: number,
+) {
+  const reader = upstream.body?.getReader()
+  if (!reader) {
+    return anthropicError(c, 502, 'api_error', 'Upstream returned empty stream')
+  }
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      try {
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+          if (value) controller.enqueue(value)
+        }
+        controller.close()
+        const responseTime = Date.now() - started
+        // Anthropic SSE usage is in message_delta; scraping is best-effort — record 0 if unknown.
+        store.pool.recordSuccess(accountId, 0, 0, 0, responseTime)
+        await recordProxyUsage(store, {
+          ...apiKeyFromContext(c),
+          timestamp: Date.now(),
+          accountId,
+          model: body.model || 'unknown',
+          inputTokens: 0,
+          outputTokens: 0,
+          success: true,
+          responseTimeMs: responseTime,
+        }, { path: '/v1/messages', apiStyle: 'anthropic', status: 200 })
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        store.pool.recordError(accountId, ErrorType.FATAL, 502)
+        controller.error(err)
+        await recordProxyUsage(store, {
+          ...apiKeyFromContext(c),
+          timestamp: Date.now(),
+          accountId,
+          model: body.model || 'unknown',
+          inputTokens: 0,
+          outputTokens: 0,
+          success: false,
+          error: message,
+          responseTimeMs: Date.now() - started,
+        }, { path: '/v1/messages', apiStyle: 'anthropic', status: 502 })
+      }
+    },
+  })
+  const contentType = upstream.headers.get('content-type') || 'text/event-stream; charset=utf-8'
+  return new Response(stream, {
+    status: upstream.status,
+    headers: {
+      'Content-Type': contentType,
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive',
+    },
+  })
+}
+

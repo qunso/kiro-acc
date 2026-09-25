@@ -358,7 +358,7 @@ pre.docs{background:#0d1218;border:1px solid var(--line);border-radius:10px;padd
   <section id="tab-import" hidden>
     <div class="card">
       <h2>导入账号</h2>
-      <p class="muted">支持本服务导出的 accounts JSON、原版 OIDC 凭证（refreshToken / clientId / clientSecret）、管理器 <code>credentials</code> 导出，以及卡密行：<span class="mono">邮箱----密码----RefreshToken----ClientId----ClientSecret----登录方式</span>。卡密里的密码不会入库。</p>
+      <p class="muted">支持本服务导出的 accounts JSON、原版 OIDC 凭证（refreshToken / clientId / clientSecret）、OpenAI/Anthropic 兼容上游（upstreamType + baseUrl + upstreamApiKey）、管理器 <code>credentials</code> 导出，以及卡密行：<span class="mono">邮箱----密码----RefreshToken----ClientId----ClientSecret----登录方式</span>。卡密里的密码不会入库。</p>
       <div class="row" style="margin-bottom:8px">
         <label class="muted">模式</label>
         <select id="accountImportMode">
@@ -370,6 +370,23 @@ pre.docs{background:#0d1218;border:1px solid var(--line);border-radius:10px;padd
       <div class="row" style="margin-top:10px">
         <button class="primary" id="doAccountImport">导入账号</button>
       </div>
+    </div>
+    <div class="card">
+      <h2>添加兼容上游（OpenAI / Anthropic API Key）</h2>
+      <p class="muted">账号池模式：客户端仍打本服务 <code>/v1/chat/completions</code> 或 <code>/v1/messages</code>；选中此类账号时按协议原样转发到 <code>baseUrl</code>（走账号粘性出口）。不改动 Kiro 路径。</p>
+      <div class="row" style="margin-bottom:8px;flex-wrap:wrap;gap:8px">
+        <input id="relayLabel" placeholder="标签" style="width:140px"/>
+        <select id="relayUpstreamType">
+          <option value="openai_compat">openai_compat</option>
+          <option value="anthropic_compat">anthropic_compat</option>
+        </select>
+        <input id="relayBaseUrl" placeholder="baseUrl 如 https://api.openai.com/v1" style="flex:1;min-width:220px"/>
+        <input id="relayApiKey" type="password" placeholder="upstreamApiKey" style="width:180px"/>
+        <input id="relayModelPrefix" placeholder="modelPrefix 可选" style="width:140px"/>
+        <button class="primary" id="doRelayCreate">创建</button>
+      </div>
+      <textarea id="relayHeaders" placeholder='可选 defaultHeaders JSON，如 {"x-custom":"1"}' style="min-height:56px"></textarea>
+      <p class="muted" id="relayCreateHint"></p>
     </div>
     <div class="card">
       <h2>导入出口</h2>
@@ -655,6 +672,13 @@ function statusBadge(e) {
   if (e.disabled) return '<span class="badge bad">disabled</span>';
   if (e.cooldownUntil && e.cooldownUntil > Date.now()) return '<span class="badge warn">cooldown</span>';
   return '<span class="badge ok">active</span>';
+}
+
+function upstreamBadge(a) {
+  const t = (a && a.upstreamType) || 'kiro';
+  if (t === 'openai_compat') return ' <span class="badge">openai_compat</span>';
+  if (t === 'anthropic_compat') return ' <span class="badge">anthropic_compat</span>';
+  return '';
 }
 function accountStatus(a) {
   const bits = [];
@@ -978,6 +1002,9 @@ function renderAccountDrawer(a) {
   const upgrade = d.upgradeCapability || '';
   const kiroUid = d.kiroUserId || '';
   const provider = [a.provider, a.authMethod].filter(Boolean).join(' / ') || '—';
+  const upstreamType = a.upstreamType || 'kiro';
+  const baseUrl = a.baseUrl || '';
+  const modelPrefix = a.modelPrefix || '';
 
   $('drawerTitle').textContent = a.label || a.email || a.id;
   $('drawerSub').textContent = (a.email || a.id) + (subTitle ? (' · ' + subTitle) : '');
@@ -1004,6 +1031,10 @@ function renderAccountDrawer(a) {
       '<dt>邮箱/ID</dt><dd class="mono">'+esc(a.email || a.id)+'</dd>'+
       '<dt>账号别名</dt><dd>'+esc(a.label || '—')+'</dd>'+
       '<dt>身份提供商</dt><dd>'+esc(provider)+'</dd>'+
+      '<dt>上游类型</dt><dd><span class="mono">'+esc(upstreamType)+'</span></dd>'+
+      (baseUrl ? '<dt>baseUrl</dt><dd class="mono">'+esc(baseUrl)+'</dd>' : '')+
+      (modelPrefix ? '<dt>modelPrefix</dt><dd class="mono">'+esc(modelPrefix)+'</dd>' : '')+
+      (upstreamType !== 'kiro' ? '<dt>upstreamApiKey</dt><dd class="mono">••••</dd>' : '')+
       '<dt>用户 ID</dt><dd class="mono">'+esc(kiroUid || '—')+'</dd>'+
       '<dt>机器码 / Machine ID</dt><dd>'+
         '<div class="row" style="gap:6px;align-items:center;flex-wrap:wrap">'+
@@ -1174,7 +1205,7 @@ function renderAccounts() {
           (a.machineId || a.deviceId || a.clientDeviceId
             ? '<div class="muted mono" style="font-size:11px">机器码 '+esc(a.machineId || a.deviceId || a.clientDeviceId)+'</div>'
             : '')+
-          '<div style="margin-top:4px">'+accountStatus(a)+' <span class="muted" style="font-size:11px">'+esc(auth)+'</span></div>'+
+          '<div style="margin-top:4px">'+accountStatus(a)+' <span class="muted" style="font-size:11px">'+esc(auth)+'</span>'+upstreamBadge(a)+'</div>'+
         '</div>'+
       '</div>'+
       '<div>'+usageCell(a)+'</div>'+
@@ -1949,6 +1980,41 @@ $('doImport').onclick = async () => {
     refresh();
   } catch (e) { toast(e.message, true); }
 };
+
+$('doRelayCreate').onclick = async () => {
+  try {
+    const label = $('relayLabel').value.trim() || 'compat-relay';
+    const upstreamType = $('relayUpstreamType').value;
+    const baseUrl = $('relayBaseUrl').value.trim();
+    const upstreamApiKey = $('relayApiKey').value.trim();
+    const modelPrefix = $('relayModelPrefix').value.trim() || undefined;
+    if (!baseUrl) throw new Error('baseUrl 必填');
+    if (!upstreamApiKey) throw new Error('upstreamApiKey 必填');
+    let defaultHeaders;
+    const headersRaw = $('relayHeaders').value.trim();
+    if (headersRaw) {
+      defaultHeaders = JSON.parse(headersRaw);
+    }
+    const body = {
+      label,
+      upstreamType,
+      baseUrl,
+      upstreamApiKey,
+      modelPrefix,
+      defaultHeaders,
+      enabled: true,
+    };
+    const r = await api('/accounts', { method: 'POST', body: JSON.stringify(body) });
+    $('relayCreateHint').textContent = '已创建 ' + (r.label || r.id) + ' (' + (r.upstreamType || upstreamType) + ')';
+    $('relayApiKey').value = '';
+    toast('兼容上游账号已创建');
+    refresh();
+  } catch (e) {
+    $('relayCreateHint').textContent = e.message || String(e);
+    toast(e.message || String(e), true);
+  }
+};
+
 $('doAccountImport').onclick = async () => {
   try {
     const raw = $('accountImport').value.trim();

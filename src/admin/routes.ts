@@ -1,6 +1,16 @@
 import { Hono } from 'hono'
 import type { AccountStore } from '../accounts/store.js'
 import type { AccountCreateInput, AccountRecord, PersistedConfig } from '../accounts/types.js'
+import {
+  isCompatUpstream,
+  resolveUpstreamType,
+  validateAccountCredentials,
+} from '../accounts/upstream.js'
+import {
+  CompatUpstreamError,
+  forwardAnthropicMessages,
+  forwardOpenAiChatCompletions,
+} from '../proxy/compatRelay.js'
 import { normalizeAccountImport } from '../accounts/importNormalize.js'
 import {
   isTokenExpiringSoon,
@@ -110,8 +120,9 @@ export function createAdminRoutes(
 
   app.post('/accounts', async (c) => {
     const body = (await c.req.json()) as AccountCreateInput
-    if (!body.accessToken && !body.refreshToken) {
-      return c.json({ error: 'accessToken or refreshToken is required' }, 400)
+    const cred = validateAccountCredentials(body)
+    if (!cred.ok) {
+      return c.json({ error: cred.error || 'invalid account credentials' }, 400)
     }
     try {
       const created = await store.create(body)
@@ -1468,6 +1479,171 @@ export function createAdminRoutes(
             latencyMs: 0,
           },
           400,
+        )
+      }
+    }
+
+    // Compat relay accounts: smoke-test via upstream baseUrl (no Kiro token / machineId).
+    if (isCompatUpstream(account)) {
+      const upstreamType = resolveUpstreamType(account)
+      const started = Date.now()
+      try {
+        if (upstreamType === 'openai_compat') {
+          const fwd = await forwardOpenAiChatCompletions(
+            account,
+            {
+              model,
+              messages: [{ role: 'user', content: message }],
+              max_tokens: 256,
+            },
+            { signal: c.req.raw.signal },
+          )
+          const latencyMs = Date.now() - started
+          const usage = fwd.usage
+          const textOut =
+            typeof (fwd.json as { choices?: { message?: { content?: string } }[] })?.choices?.[0]?.message
+              ?.content === 'string'
+              ? (fwd.json as { choices: { message: { content: string } }[] }).choices[0].message.content
+              : JSON.stringify(fwd.json)
+          store.pool.recordSuccess(
+            account.id,
+            usage.inputTokens + usage.outputTokens,
+            usage.inputTokens,
+            usage.outputTokens,
+            latencyMs,
+          )
+          await recordProxyUsage(
+            store,
+            {
+              timestamp: Date.now(),
+              accountId: account.id,
+              model: usage.modelId || model,
+              inputTokens: usage.inputTokens,
+              outputTokens: usage.outputTokens,
+              success: true,
+              responseTimeMs: latencyMs,
+            },
+            { path: '/admin/chat-test', apiStyle: 'openai', status: 200 },
+          )
+          return c.json({
+            ok: true,
+            accountId: account.id,
+            model: usage.modelId || model,
+            requestModel: model,
+            mappedModel: model,
+            upstreamModelId: usage.modelId || model,
+            responseModelId: usage.modelId || null,
+            upstreamType,
+            baseUrl: account.baseUrl || null,
+            machineId: null,
+            text: textOut || '',
+            latencyMs,
+            usage: {
+              inputTokens: usage.inputTokens,
+              outputTokens: usage.outputTokens,
+              credits: 0,
+              modelId: usage.modelId || null,
+            },
+            quota: null,
+          })
+        }
+        if (upstreamType === 'anthropic_compat') {
+          const fwd = await forwardAnthropicMessages(
+            account,
+            {
+              model,
+              max_tokens: 256,
+              messages: [{ role: 'user', content: message }],
+            },
+            { signal: c.req.raw.signal },
+          )
+          const latencyMs = Date.now() - started
+          const usage = fwd.usage
+          const j = fwd.json as { content?: { type?: string; text?: string }[] } | null
+          const textOut = Array.isArray(j?.content)
+            ? j!.content.filter((b) => b.type === 'text' && b.text).map((b) => b.text).join('')
+            : JSON.stringify(fwd.json)
+          store.pool.recordSuccess(
+            account.id,
+            usage.inputTokens + usage.outputTokens,
+            usage.inputTokens,
+            usage.outputTokens,
+            latencyMs,
+          )
+          await recordProxyUsage(
+            store,
+            {
+              timestamp: Date.now(),
+              accountId: account.id,
+              model: usage.modelId || model,
+              inputTokens: usage.inputTokens,
+              outputTokens: usage.outputTokens,
+              success: true,
+              responseTimeMs: latencyMs,
+            },
+            { path: '/admin/chat-test', apiStyle: 'anthropic', status: 200 },
+          )
+          return c.json({
+            ok: true,
+            accountId: account.id,
+            model: usage.modelId || model,
+            requestModel: model,
+            mappedModel: model,
+            upstreamModelId: usage.modelId || model,
+            responseModelId: usage.modelId || null,
+            upstreamType,
+            baseUrl: account.baseUrl || null,
+            machineId: null,
+            text: textOut || '',
+            latencyMs,
+            usage: {
+              inputTokens: usage.inputTokens,
+              outputTokens: usage.outputTokens,
+              credits: 0,
+              modelId: usage.modelId || null,
+            },
+            quota: null,
+          })
+        }
+        return c.json(
+          { ok: false, accountId, model, error: `unsupported upstreamType ${upstreamType}`, latencyMs: 0 },
+          400,
+        )
+      } catch (err) {
+        const latencyMs = Date.now() - started
+        const msg = err instanceof Error ? err.message : String(err)
+        const status = err instanceof CompatUpstreamError ? err.statusCode : 502
+        await recordProxyUsage(
+          store,
+          {
+            timestamp: Date.now(),
+            accountId: account.id,
+            model,
+            inputTokens: 0,
+            outputTokens: 0,
+            success: false,
+            error: msg,
+            responseTimeMs: latencyMs,
+          },
+          {
+            path: '/admin/chat-test',
+            apiStyle: upstreamType === 'anthropic_compat' ? 'anthropic' : 'openai',
+            status: status >= 400 && status < 600 ? status : 502,
+          },
+        )
+        return c.json(
+          {
+            ok: false,
+            accountId: account.id,
+            model,
+            requestModel: model,
+            upstreamType,
+            baseUrl: account.baseUrl || null,
+            text: '',
+            latencyMs,
+            error: msg,
+          },
+          200,
         )
       }
     }
