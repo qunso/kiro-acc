@@ -3,9 +3,17 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>kiro-acc · 账户管理</title>
+<title>kiro-acc · 团队 AI 网关运维台</title>
 <style>
-:root{--bg:#0f1419;--card:#1a2332;--line:#2a3544;--text:#e7ecf3;--muted:#8b9bb4;--acc:#5b9cff;--ok:#3ecf8e;--bad:#ff6b6b;--warn:#ffb020}
+:root{
+  --bg:#0B0E14;--surface:#111621;--surface-2:#161C29;--border:#1F2733;
+  --card:var(--surface);--line:var(--border);
+  --text:#E6EDF6;--text-2:#9AA7B8;--text-3:#64748B;--muted:var(--text-2);
+  --accent:#38BDF8;--accent-weak:rgba(56,189,248,.12);--acc:var(--accent);
+  --ok:#34D399;--warn:#FBBF24;--err:#F87171;--idle:#64748B;--bad:var(--err);
+  --font-mono:ui-monospace,"JetBrains Mono",Menlo,monospace;
+  --row-h:34px;--radius:8px;--gap:12px;
+}
 *{box-sizing:border-box}
 body{margin:0;font:14px/1.45 ui-sans-serif,system-ui,sans-serif;background:var(--bg);color:var(--text)}
 .shell{display:grid;grid-template-columns:220px 1fr;min-height:100vh}
@@ -168,6 +176,75 @@ pre.docs{background:#0d1218;border:1px solid var(--line);border-radius:10px;padd
   .drawer{width:100%}
 }
 
+
+/* P0 gateway theme additions */
+aside{background:var(--surface);border-right:1px solid var(--border)}
+header{background:var(--surface);border-bottom:1px solid var(--border)}
+.brand{font-size:16px;font-weight:700;letter-spacing:.01em}
+.brand-sub{font-size:12px;color:var(--text-3);margin-top:2px}
+.nav{display:flex;flex-direction:column;gap:2px;margin-top:8px;overflow:auto;flex:1;min-height:0}
+.nav-group{display:flex;flex-direction:column;gap:2px;margin-bottom:10px}
+.nav-group-label{
+  font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--text-3);padding:8px 12px 4px;user-select:none;pointer-events:none;
+}
+.nav button{text-align:left;background:transparent;border:1px solid transparent;color:var(--text-2);padding:8px 12px;border-radius:var(--radius);min-height:var(--row-h)}
+.nav button.active{background:var(--accent-weak);color:var(--accent);border-color:transparent}
+.nav button:hover:not(.active):not(:disabled){background:var(--surface-2);color:var(--text)}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px;margin-bottom:16px}
+.badge{display:inline-block;padding:2px 7px;border-radius:999px;font-size:11px;border:1px solid var(--border);margin:1px 2px 1px 0}
+.badge.ok,.badge--ok{color:var(--ok);border-color:rgba(52,211,153,.35)}
+.badge.bad,.badge--err{color:var(--err);border-color:rgba(248,113,113,.35)}
+.badge.warn,.badge--warn{color:var(--warn);border-color:rgba(251,191,36,.35)}
+.badge.idle,.badge--idle{color:var(--idle);border-color:rgba(100,116,139,.4)}
+.mono,.kpi-val{font-family:var(--font-mono);font-variant-numeric:tabular-nums}
+.kpi-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:var(--gap);margin-bottom:16px}
+@media(max-width:1100px){.kpi-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:600px){.kpi-grid{grid-template-columns:1fr}}
+.kpi{
+  background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
+  padding:12px 14px;cursor:pointer;border-left:3px solid var(--idle);
+  transition:border-color .15s,background .15s;min-width:0;
+}
+.kpi:hover{background:var(--surface-2);border-color:var(--accent)}
+.kpi.ok{border-left-color:var(--ok)}
+.kpi.warn{border-left-color:var(--warn)}
+.kpi.err{border-left-color:var(--err)}
+.kpi.idle{border-left-color:var(--idle)}
+.kpi-label{font-size:12px;color:var(--text-2);margin-bottom:4px}
+.kpi-val{display:block;font-size:22px;font-weight:650;color:var(--text);line-height:1.2;margin:4px 0}
+.kpi-sub{font-size:12px;color:var(--text-3);line-height:1.4}
+.kpi-sub .bit{margin-right:8px}
+.baseurl-grid{display:grid;grid-template-columns:1fr 1fr;gap:var(--gap);margin-bottom:12px}
+@media(max-width:800px){.baseurl-grid{grid-template-columns:1fr}}
+.baseurl-card{background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius);padding:12px}
+.baseurl-card h3{margin:0 0 6px;font-size:13px;color:var(--accent)}
+.baseurl-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.baseurl-row code{flex:1;min-width:0;word-break:break-all;font-family:var(--font-mono);font-size:12px;background:#0d1218;padding:8px 10px;border-radius:6px;border:1px solid var(--border)}
+.client-snips details{border:1px solid var(--border);border-radius:var(--radius);padding:8px 12px;margin-bottom:8px;background:var(--surface-2)}
+.client-snips summary{cursor:pointer;color:var(--text);font-weight:600;user-select:none}
+.client-snips pre{margin:8px 0 0;white-space:pre-wrap;word-break:break-all;font-size:12px;font-family:var(--font-mono);color:var(--text-2)}
+.page-sub{font-size:13px;color:var(--text-2);margin:0 0 12px}
+#serviceBanner{
+  display:none;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;
+  padding:10px 20px;background:rgba(248,113,113,.1);border-bottom:1px solid rgba(248,113,113,.35);color:var(--err);
+}
+#serviceBanner.show{display:flex}
+#serviceBanner button{background:transparent;border:1px solid rgba(248,113,113,.45);color:var(--err)}
+.empty-cta{padding:18px;text-align:center;color:var(--text-2)}
+.empty-cta button{margin-top:10px}
+.key-once{
+  margin-top:12px;padding:12px;border-radius:var(--radius);
+  border:1px solid rgba(251,191,36,.45);background:rgba(251,191,36,.08);
+}
+.key-once .hint{color:var(--warn);font-size:12px;margin-bottom:6px;font-weight:600}
+.key-once .row{margin-top:8px}
+.stat b,.kpi-val{font-variant-numeric:tabular-nums}
+input,select,textarea,button{border-radius:var(--radius);border:1px solid var(--border);background:#0d1218}
+button.primary{background:var(--accent);border-color:transparent;color:#061018;font-weight:600}
+.muted{color:var(--text-2)}
+th,td{padding:7px 10px}
+
 </style>
 </head>
 <body>
@@ -176,29 +253,44 @@ pre.docs{background:#0d1218;border:1px solid var(--line);border-radius:10px;padd
   <div class="aside-top">
     <div>
       <div class="brand">kiro-acc</div>
-      <div class="muted">账户管理器</div>
+      <div class="brand-sub">团队 AI 网关 · 运维台</div>
     </div>
     <button type="button" class="burger" id="burger" aria-label="菜单" aria-expanded="false">☰</button>
   </div>
   <nav class="nav" id="nav">
-    <button class="active" data-tab="home">首页</button>
-    <button data-tab="accounts">账户</button>
-    <button data-tab="pools">代理池</button>
-    <button data-tab="exits">出口</button>
-    <button data-tab="api">API 反代</button>
-    <button data-tab="subs">订阅用量</button>
-    <button data-tab="webhooks">Webhook</button>
-    <button data-tab="diagnose">诊断</button>
-    <button data-tab="import">导入</button>
-    <button data-tab="probe">TLS 探测</button>
-    <button data-tab="settings">设置 / 关于</button>
+    <div class="nav-group">
+      <div class="nav-group-label">概览</div>
+      <button class="active" data-tab="home">网关总览</button>
+    </div>
+    <div class="nav-group">
+      <div class="nav-group-label">对外服务</div>
+      <button data-tab="api">API 接入</button>
+      <button data-tab="webhooks">事件回调</button>
+    </div>
+    <div class="nav-group">
+      <div class="nav-group-label">上游供给</div>
+      <button data-tab="accounts">上游账号</button>
+      <button data-tab="subs">配额用量</button>
+      <button data-tab="import">批量导入</button>
+    </div>
+    <div class="nav-group">
+      <div class="nav-group-label">出口网络</div>
+      <button data-tab="pools">出口池</button>
+      <button data-tab="exits">出口节点</button>
+      <button data-tab="probe">指纹探测</button>
+    </div>
+    <div class="nav-group">
+      <div class="nav-group-label">运维</div>
+      <button data-tab="diagnose">故障诊断</button>
+      <button data-tab="settings">系统设置</button>
+    </div>
   </nav>
-  <div class="aside-foot muted">无头服务管理台 · P0–P2</div>
+  <div class="aside-foot muted">OpenAI + Anthropic 兼容出口</div>
 </aside>
 <div class="content">
 <header>
   <div>
-    <h1 id="pageTitle">首页</h1>
+    <h1 id="pageTitle">网关总览</h1>
     <div class="muted" id="healthLine">connecting…</div>
   </div>
   <div class="row">
@@ -208,11 +300,43 @@ pre.docs{background:#0d1218;border:1px solid var(--line);border-radius:10px;padd
     <button id="reload">刷新</button>
   </div>
 </header>
+<div id="serviceBanner" role="status">
+  <span id="serviceBannerText"></span>
+  <button type="button" data-tab-jump="diagnose">去故障诊断</button>
+</div>
 <main>
   
   <section id="tab-home">
-    <div class="card stats" id="dashAccountStats"></div>
-    <div class="card stats" id="dashPoolStats"></div>
+    <p class="page-sub">对外服务、上游容量、密钥用量与出口链路</p>
+    <div id="homeEmptyCta" class="card empty-cta" hidden>
+      <div>还没有上游账号，先去「上游账号」添加或「批量导入」</div>
+      <div class="row" style="justify-content:center;gap:8px;margin-top:10px">
+        <button class="primary" type="button" data-tab-jump="accounts">添加上游账号</button>
+        <button type="button" data-tab-jump="import">批量导入</button>
+      </div>
+    </div>
+    <div class="kpi-grid" id="kpiGrid">
+      <div class="kpi idle" id="kpiServing" data-tab-jump="api" title="查看 API 接入">
+        <div class="kpi-label">对外服务</div>
+        <span class="kpi-val" id="kpiServingVal">--</span>
+        <div class="kpi-sub" id="kpiServingSub">暂无数据</div>
+      </div>
+      <div class="kpi idle" id="kpiUpstream" data-tab-jump="accounts" title="查看上游账号">
+        <div class="kpi-label">上游容量</div>
+        <span class="kpi-val" id="kpiUpstreamVal">--</span>
+        <div class="kpi-sub" id="kpiUpstreamSub">暂无数据</div>
+      </div>
+      <div class="kpi idle" id="kpiKeys" data-tab-jump="api" title="查看 API 接入">
+        <div class="kpi-label">密钥用量</div>
+        <span class="kpi-val" id="kpiKeysVal">--</span>
+        <div class="kpi-sub" id="kpiKeysSub">暂无数据</div>
+      </div>
+      <div class="kpi idle" id="kpiEgress" data-tab-jump="exits" title="查看出口节点">
+        <div class="kpi-label">出口网络</div>
+        <span class="kpi-val" id="kpiEgressVal">--</span>
+        <div class="kpi-sub" id="kpiEgressSub">暂无数据</div>
+      </div>
+    </div>
     <div class="row" style="align-items:stretch;gap:12px;flex-wrap:wrap">
       <div class="card" style="flex:1;min-width:260px">
         <h2>快捷入口</h2>
@@ -223,8 +347,11 @@ pre.docs{background:#0d1218;border:1px solid var(--line);border-radius:10px;padd
         <dl class="kv" id="dashHealth"></dl>
       </div>
     </div>
+    <!-- legacy hooks kept for JS safety -->
+    <div id="dashAccountStats" hidden></div>
+    <div id="dashPoolStats" hidden></div>
     <div class="card">
-      <h2>最近用量</h2>
+      <h2>最近事件</h2>
       <p class="muted" id="dashUsageTotals"></p>
       <div class="table-wrap">
         <table>
@@ -236,9 +363,10 @@ pre.docs{background:#0d1218;border:1px solid var(--line);border-radius:10px;padd
   </section>
 
   <section id="tab-settings" hidden>
+    <p class="page-sub">网关监听、鉴权、日志与保留策略</p>
     <div class="card">
       <h2>运行参数</h2>
-      <p class="muted">账号选择策略、Token 刷新提前量、重试与冷却等（写入 data/config.json）。</p>
+      <p class="muted">上游选择策略、Token 刷新提前量、重试与冷却等（写入 data/config.json）。</p>
       <div class="row" style="margin-bottom:8px">
         <label class="muted">策略</label>
         <select id="setStrategy">
@@ -287,9 +415,10 @@ pre.docs{background:#0d1218;border:1px solid var(--line);border-radius:10px;padd
   </section>
 
   <section id="tab-accounts" hidden>
+    <p class="page-sub">Kiro IdC / Social 与 OpenAI / Anthropic 兼容中继凭据</p>
     <div class="card stats" id="accountStats"></div>
     <div class="card">
-      <p class="muted">分组 / 标签点「编辑分组/标签」写入；批量操作勾选后执行。出口 ID/IP 只读，由池绑定写入。无 IDE 切号。</p>
+      <p class="muted">分组 / 标签点「编辑分组/标签」写入；批量操作勾选后执行。出口 ID/IP 只读，由出口池绑定写入。无 IDE 切号。</p>
       <div class="row" style="margin-bottom:10px">
         <input id="accountFilter" placeholder="搜索 标签/分组/邮箱/出口" style="width:240px"/>
         <select id="filterGroup"><option value="">全部分组</option></select>
@@ -314,9 +443,10 @@ pre.docs{background:#0d1218;border:1px solid var(--line);border-radius:10px;padd
   </section>
 
   <section id="tab-pools" hidden>
+    <p class="page-sub">Shadowsocks 出口池，同一会话粘在同一出口，避免上游风控</p>
     <div class="card">
-      <h2>创建 / 更新代理池</h2>
-      <p class="muted">池是一组可互换的 SS 出口。账号绑定到池，而不是写死单条 URL。</p>
+      <h2>创建 / 更新出口池</h2>
+      <p class="muted">出口池是一组可互换的 Shadowsocks 出口。上游账号绑定到池，由粘性策略分配节点，而不是写死单条 URL。</p>
       <div class="row" style="margin-bottom:10px">
         <input id="poolId" placeholder="pool id" style="width:160px"/>
         <input id="poolName" placeholder="名称（可选）" style="width:180px"/>
@@ -331,6 +461,7 @@ pre.docs{background:#0d1218;border:1px solid var(--line);border-radius:10px;padd
   </section>
 
   <section id="tab-exits" hidden>
+    <p class="page-sub">池内具体出口 IP 与节点，含连通性与延迟</p>
     <div class="card stats" id="exitStats"></div>
     <div class="card">
       <div class="row" style="justify-content:space-between;margin-bottom:10px">
@@ -356,8 +487,9 @@ pre.docs{background:#0d1218;border:1px solid var(--line);border-radius:10px;padd
   </section>
 
   <section id="tab-import" hidden>
+    <p class="page-sub">成批导入上游账号与出口节点</p>
     <div class="card">
-      <h2>导入账号</h2>
+      <h2>导入上游账号</h2>
       <p class="muted">支持本服务导出的 accounts JSON、原版 OIDC 凭证（refreshToken / clientId / clientSecret）、OpenAI/Anthropic 兼容上游（upstreamType + baseUrl + upstreamApiKey）、管理器 <code>credentials</code> 导出，以及卡密行：<span class="mono">邮箱----密码----RefreshToken----ClientId----ClientSecret----登录方式</span>。卡密里的密码不会入库。</p>
       <div class="row" style="margin-bottom:8px">
         <label class="muted">模式</label>
@@ -374,7 +506,7 @@ pre.docs{background:#0d1218;border:1px solid var(--line);border-radius:10px;padd
     </div>
     <div class="card">
       <h2>添加兼容上游（OpenAI / Anthropic API Key）</h2>
-      <p class="muted">账号池模式：客户端仍打本服务 <code>/v1/chat/completions</code> 或 <code>/v1/messages</code>；选中此类账号时按协议原样转发到 <code>baseUrl</code>（走账号粘性出口）。不改动 Kiro 路径。</p>
+      <p class="muted">兼容上游模式：客户端仍打本网关 <code>/v1/chat/completions</code> 或 <code>/v1/messages</code>；选中此类上游时按协议原样转发到 <code>baseUrl</code>（走账号粘性出口）。不改动 Kiro 路径。</p>
       <div class="row" style="margin-bottom:8px;flex-wrap:wrap;gap:8px">
         <input id="relayLabel" placeholder="标签" style="width:140px"/>
         <select id="relayUpstreamType">
@@ -401,17 +533,62 @@ pre.docs{background:#0d1218;border:1px solid var(--line);border-radius:10px;padd
   </section>
 
   <section id="tab-api" hidden>
+    <p class="page-sub">给团队成员发放 Key，客户端只需改 Base URL</p>
     <div class="card">
-      <h2>对外 URL</h2>
+      <h2>Base URL</h2>
       <p class="muted">客户端把 Base URL 指到下方地址；鉴权用 API Key（Bearer 或 x-api-key）。</p>
-      <dl class="kv" id="apiMetaKv"><dt>…</dt><dd class="muted">加载中</dd></dl>
+      <div class="baseurl-grid" id="baseUrlCards">
+        <div class="baseurl-card">
+          <h3>OpenAI 兼容 Base URL</h3>
+          <div class="baseurl-row">
+            <code id="baseUrlOpenAI">—</code>
+            <button type="button" data-copy-target="baseUrlOpenAI">复制</button>
+          </div>
+        </div>
+        <div class="baseurl-card">
+          <h3>Anthropic 兼容 Base URL</h3>
+          <div class="baseurl-row">
+            <code id="baseUrlAnthropic">—</code>
+            <button type="button" data-copy-target="baseUrlAnthropic">复制</button>
+          </div>
+        </div>
+      </div>
+      <dl class="kv" id="apiMetaKv" style="margin-top:12px"><dt>…</dt><dd class="muted">加载中</dd></dl>
     </div>
     <div class="card">
-      <h2>API Keys</h2>
-      <p class="muted">除环境变量 <code>API_KEY</code> 外，可在此创建持久化密钥。创建时明文只显示一次。下方「按 Key 汇总」展示各密钥的请求数与 token。</p>
+      <h2>客户端接入</h2>
+      <div class="client-snips" id="clientSnips">
+        <details open>
+          <summary>Cursor</summary>
+          <p class="muted" style="margin:6px 0">设置 → Models → Override / OpenAI Compatible：填入 Base URL 与 Key</p>
+          <pre id="snipCursor">加载中…</pre>
+        </details>
+        <details>
+          <summary>Claude Code</summary>
+          <p class="muted" style="margin:6px 0">设置 <code>ANTHROPIC_BASE_URL</code> 与 <code>ANTHROPIC_AUTH_TOKEN</code></p>
+          <pre id="snipClaudeCode">加载中…</pre>
+        </details>
+        <details>
+          <summary>Kiro IDE</summary>
+          <p class="muted" style="margin:6px 0">模型配置里指向本网关 Base URL</p>
+          <pre id="snipKiro">加载中…</pre>
+        </details>
+        <details>
+          <summary>通用 curl 自检</summary>
+          <pre id="snipCurl">加载中…</pre>
+        </details>
+      </div>
+    </div>
+    <div class="card">
+      <h2>对外 API Key</h2>
+      <p class="muted">Key 只在创建时完整显示一次，请立即保存。列表仅显示前缀 + 掩码。除环境变量 <code>API_KEY</code> 外，可在此创建持久化密钥。</p>
       <div class="row" style="margin-bottom:10px">
         <input id="newKeyLabel" placeholder="标签（可选）" style="width:200px"/>
-        <button class="primary" id="createApiKey">创建 Key</button>
+        <button class="primary" id="createApiKey">新建 Key</button>
+      </div>
+      <div id="apiKeyEmptyCta" class="empty-cta" hidden>
+        <div>还没有对外 Key，新建第一个即可让团队接入</div>
+        <button class="primary" type="button" id="emptyCreateKeyHint">新建第一个 Key</button>
       </div>
       <div id="envKeyHint" class="muted" style="margin-bottom:8px"></div>
       <div class="table-wrap">
@@ -420,14 +597,21 @@ pre.docs{background:#0d1218;border:1px solid var(--line);border-radius:10px;padd
           <tbody id="apiKeyBody"></tbody>
         </table>
       </div>
-      <pre class="docs" id="newKeyOnce" hidden></pre>
+      <div class="key-once" id="newKeyOnce" hidden>
+        <div class="hint">⚠ 仅此一次 · 请立即复制保存，关闭后无法再查看明文</div>
+        <code class="mono" id="newKeyOnceValue" style="display:block;word-break:break-all"></code>
+        <div class="row">
+          <button type="button" class="primary" id="copyNewKey">复制 Key</button>
+          <button type="button" class="ghost" id="dismissNewKey">我已保存</button>
+        </div>
+      </div>
     </div>
     <div class="card">
-      <h2>模型映射</h2>
-      <p class="muted">OpenAI / 客户端模型名 → 上游公共模型（覆盖内置映射）。例：<code>gpt-4o-mini</code> → <code>claude-haiku-4.5</code>。</p>
+      <h2>模型改写</h2>
+      <p class="muted">把客户端请求的模型名映射到实际上游模型，客户端无需改配置。例：<code>gpt-4o-mini</code> → <code>claude-haiku-4.5</code>。</p>
       <div class="row" style="margin-bottom:10px">
-        <input id="mapFrom" placeholder="客户端模型名" style="width:180px"/>
-        <input id="mapTo" placeholder="上游模型" style="width:180px"/>
+        <input id="mapFrom" placeholder="客户端请求的模型" style="width:180px"/>
+        <input id="mapTo" placeholder="实际调用的上游模型" style="width:180px"/>
         <button class="primary" id="addModelMap">添加 / 更新</button>
       </div>
       <div class="table-wrap">
@@ -461,16 +645,17 @@ pre.docs{background:#0d1218;border:1px solid var(--line);border-radius:10px;padd
     </div>
     <div class="card">
       <h2>调用说明</h2>
-      <p class="muted">Chat Completions 与 Messages 共用账号池；账号绑池后走粘性出口。无 MITM / machine-id / JA4 伪造。</p>
+      <p class="muted">Chat Completions 与 Messages 共用上游供给；上游账号绑出口池后走粘性 Shadowsocks 出口。无 MITM / machine-id / JA4 伪造。</p>
       <pre class="docs" id="apiDocs"></pre>
     </div>
   </section>
 
   
   <section id="tab-subs" hidden>
+    <p class="page-sub">各上游账号的订阅额度水位与重置时间</p>
     <div class="card stats" id="subStats"></div>
     <div class="card">
-      <p class="muted">订阅类型由 provider/authMethod 推导；配额与用量来自本地池计量。可单账号刷新 Token/用量。不含批量订阅升级。</p>
+      <p class="muted">配额类型由 provider/authMethod 推导；额度与用量来自上游或本地计量。可单账号刷新 Token/用量。</p>
       <div class="row" style="margin-bottom:10px">
         <input id="subFilter" placeholder="过滤账号 / 类型" style="width:240px"/>
         <select id="subFocus">
@@ -497,8 +682,9 @@ pre.docs{background:#0d1218;border:1px solid var(--line);border-radius:10px;padd
   </section>
 
   <section id="tab-webhooks" hidden>
+    <p class="page-sub">告警与用量事件推送到 IM / 内部系统</p>
     <div class="card">
-      <h2>新建 Webhook</h2>
+      <h2>新建事件回调</h2>
       <p class="muted">支持 DingTalk / Telegram / Discord / Slack / generic JSON。事件：封禁、全配额耗尽、刷新失败、出口连续失败、诊断失败。</p>
       <div class="row" style="margin-bottom:8px">
         <input id="whLabel" placeholder="标签" style="width:140px"/>
@@ -528,9 +714,10 @@ pre.docs{background:#0d1218;border:1px solid var(--line);border-radius:10px;padd
   </section>
 
   <section id="tab-diagnose" hidden>
+    <p class="page-sub">链路自检：入口 → 账号 → 出口 → 上游</p>
     <div class="card">
-      <h2>账号诊断</h2>
-      <p class="muted">检查 Token/刷新、粘性出口可达性，以及 TLS/JA4 粘性 vs 直连（只读观测）。完整单项探测也可在「TLS 探测」页进行。不伪造指纹 / 无 MITM / 无 machine-id。</p>
+      <h2>故障诊断</h2>
+      <p class="muted">检查 Token/刷新、粘性出口可达性，以及 TLS/JA4 粘性 vs 直连（只读观测）。完整单项探测也可在「指纹探测」页进行。不伪造指纹 / 无 MITM / 无 machine-id。</p>
       <div class="row" style="margin-bottom:10px">
         <select id="diagAccount" style="min-width:240px"><option value="">选择账号</option></select>
         <label class="row"><input type="checkbox" id="diagRefresh" checked/> 必要时刷新 Token</label>
@@ -545,9 +732,10 @@ pre.docs{background:#0d1218;border:1px solid var(--line);border-radius:10px;padd
   </section>
 
   <section id="tab-probe" hidden>
+    <p class="page-sub">只读采集 TLS / JA4 指纹，不解密、不中间人</p>
     <div class="card">
-      <h2>TLS 指纹探测（只读）</h2>
-      <p class="muted">对比账号粘性出站与直连的 JA3/JA4/ALPN/出口 IP。不修改 ClientHello。</p>
+      <h2>指纹探测（只读）</h2>
+      <p class="muted">对比上游账号粘性出站与直连的 JA3/JA4/ALPN/出口 IP。不修改 ClientHello，不做 MITM。</p>
       <div class="row" style="margin-bottom:10px">
         <select id="probeAccount" style="min-width:240px"><option value="">选择账号</option></select>
         <label class="row"><input type="checkbox" id="compareDirect" checked/> 对比直连</label>
@@ -616,9 +804,9 @@ pre.docs{background:#0d1218;border:1px solid var(--line);border-radius:10px;padd
 const $ = (id) => document.getElementById(id);
 const tokenKey = 'kiro-acc-admin-token';
 const titles = {
-  home: '首页', accounts: '账户管理', pools: '代理池', exits: '出口', import: '导入',
-  api: 'API 反代', subs: '订阅用量', webhooks: 'Webhook', diagnose: '诊断',
-  probe: 'TLS 探测', settings: '设置 / 关于'
+  home: '网关总览', accounts: '上游账号', pools: '出口池', exits: '出口节点', import: '批量导入',
+  api: 'API 接入', subs: '配额用量', webhooks: '事件回调', diagnose: '故障诊断',
+  probe: '指纹探测', settings: '系统设置'
 };
 /** Internal tab id → canonical hash slug (#/<slug>). */
 const TAB_TO_ROUTE = {
@@ -739,7 +927,7 @@ function exitTip(a) {
   const ip = (a.assignedExit && a.assignedExit.exitIp) || (exitById(id) || {}).exitIp || (exitById(id) || {}).expectedExitIp || '';
   if (!id && !ip) return '<span class="muted">未分配</span>';
   const label = [id || '?', ip].filter(Boolean).join(' · ');
-  return '<span class="tip mono" title="只读：绑定代理池后由分配写入的出口">'+esc(label)+'</span>';
+  return '<span class="tip mono" title="只读：绑定出口池后由分配写入的出口">'+esc(label)+'</span>';
 }
 function usageCell(a) {
   const s = a.stats || {};
@@ -1154,10 +1342,10 @@ function renderAccountDrawer(a) {
   let modelsHtml = '';
   if (!compat) {
     subHtml =
-      '<div class="drawer-sec"><h3>订阅详情</h3><dl class="dl">'+
+      '<div class="drawer-sec"><h3>配额详情</h3><dl class="dl">'+
         '<dt>Region</dt><dd class="mono">'+esc(a.region || '—')+'</dd>'+
         '<dt>Token 到期</dt><dd class="mono">'+esc(fmtTs(a.expiresAt))+'</dd>'+
-        '<dt>订阅类型</dt><dd class="mono">'+esc(subTitle || '—')+'</dd>'+
+        '<dt>配额类型</dt><dd class="mono">'+esc(subTitle || '—')+'</dd>'+
         (overage ? '<dt>超额费率</dt><dd class="mono">'+esc(overage)+'</dd>' : '')+
         '<dt>资源类型</dt><dd class="mono">'+esc(resourceType || '—')+'</dd>'+
         (upgrade ? '<dt>可升级</dt><dd class="mono">'+esc(upgrade)+'</dd>' : '')+
@@ -1175,15 +1363,15 @@ function renderAccountDrawer(a) {
     const poolLabel = pool ? (pool.name ? pool.id + ' · ' + pool.name : pool.id) : (poolId || '—');
     proxyHtml =
       '<div class="drawer-sec"><h3>绑定代理</h3><dl class="dl">'+
-        '<dt>代理池</dt><dd class="mono">'+esc(poolLabel)+'</dd>'+
+        '<dt>出口池</dt><dd class="mono">'+esc(poolLabel)+'</dd>'+
         '<dt>出口</dt><dd>'+exitTip(a)+'</dd>'+
       '</dl>'+
-      '<p class="muted" style="font-size:11px;margin:8px 0 0">只读展示；改绑请在卡片上使用代理池下拉 / 操作菜单。</p>'+
+      '<p class="muted" style="font-size:11px;margin:8px 0 0">只读展示；改绑请在卡片上使用出口池下拉 / 操作菜单。</p>'+
       '</div>';
   } else {
     proxyHtml =
       '<div class="drawer-sec"><h3>绑定代理</h3>'+
-        '<div class="drawer-empty">未绑定代理池 / 出口。</div></div>';
+        '<div class="drawer-empty">未绑定出口池 / 出口节点。</div></div>';
   }
 
   body.innerHTML = quotaHtml + basicHtml + subHtml + modelsHtml + proxyHtml;
@@ -1395,7 +1583,7 @@ function renderAccounts() {
       '</div>'+
       '<div>'+usageCell(a)+'</div>'+
       '<div class="row" style="gap:6px;align-items:center">'+
-        '<label class="muted" style="font-size:11px">代理池</label>'+
+        '<label class="muted" style="font-size:11px">出口池</label>'+
         '<select data-pool-for="'+esc(a.id)+'" style="flex:1;min-width:0">'+poolOptions(a.outboundPoolId||'')+'</select>'+
       '</div>'+
       '<div class="muted" style="font-size:12px">出口 '+exitTip(a)+'</div>'+
@@ -1447,7 +1635,7 @@ function renderExitChecks() {
 }
 function renderPools() {
   const el = $('poolsList');
-  if (!state.pools.length) { el.innerHTML = '<div class="card"><span class="muted">暂无代理池。在上方勾选出口后保存。</span></div>'; return; }
+  if (!state.pools.length) { el.innerHTML = '<div class="card"><span class="muted">暂无出口池。在上方勾选出口节点后保存。</span></div>'; return; }
   el.innerHTML = state.pools.map(p => {
     const ids = p.exitIds || [];
     const bound = state.accounts.filter(a => a.outboundPoolId === p.id).length;
@@ -1510,6 +1698,44 @@ function renderExits() {
 
 function renderApiPanel() {
   const m = state.apiMeta;
+  const base = (m && m.publicBaseUrl) || (location.origin || 'http://127.0.0.1:8787');
+  const openaiBase = base.replace(/\/$/, '');
+  const anthropicBase = openaiBase; // same host; /v1/messages is Anthropic-compatible
+  if ($('baseUrlOpenAI')) $('baseUrlOpenAI').textContent = openaiBase + '/v1';
+  if ($('baseUrlAnthropic')) $('baseUrlAnthropic').textContent = anthropicBase;
+  if ($('snipCursor')) {
+    $('snipCursor').textContent =
+`Base URL: ${openaiBase}/v1
+API Key:  <你的网关 Key>
+
+Cursor → Settings → Models → OpenAI Compatible / Override
+填入上方 Base URL 与 Key 即可。`;
+  }
+  if ($('snipClaudeCode')) {
+    $('snipClaudeCode').textContent =
+`export ANTHROPIC_BASE_URL="${anthropicBase}"
+export ANTHROPIC_AUTH_TOKEN="<你的网关 Key>"
+# 然后正常使用 claude / Claude Code`;
+  }
+  if ($('snipKiro')) {
+    $('snipKiro').textContent =
+`在 Kiro IDE 模型 / 自定义供应商配置中：
+Base URL = ${openaiBase}/v1
+API Key  = <你的网关 Key>`;
+  }
+  if ($('snipCurl')) {
+    $('snipCurl').textContent =
+`# OpenAI Chat Completions
+curl -s ${openaiBase}/v1/chat/completions \\
+  -H "Authorization: Bearer $API_KEY" -H "content-type: application/json" \\
+  -d '{"model":"claude-sonnet-4.5","messages":[{"role":"user","content":"hi"}]}'
+
+# Anthropic Messages
+curl -s ${anthropicBase}/v1/messages \\
+  -H "x-api-key: $API_KEY" -H "content-type: application/json" \\
+  -H "anthropic-version: 2023-06-01" \\
+  -d '{"model":"claude-sonnet-4.5","max_tokens":256,"messages":[{"role":"user","content":"hi"}]}'`;
+  }
   if (m) {
     const ep = m.endpoints || {};
     $('apiMetaKv').innerHTML =
@@ -1518,30 +1744,29 @@ function renderApiPanel() {
       '<dt>Messages</dt><dd class="mono">'+esc(ep.anthropicMessages)+'</dd>'+
       '<dt>Messages 别名</dt><dd class="mono">'+esc(ep.anthropicMessagesAlias)+'</dd>'+
       '<dt>Models</dt><dd class="mono">'+esc(ep.openaiModels)+'</dd>';
-    const base = m.publicBaseUrl || 'http://127.0.0.1:8787';
-    $('apiDocs').textContent =
+    if ($('apiDocs')) $('apiDocs').textContent =
 `# OpenAI Chat Completions
-curl -s ${base}/v1/chat/completions \\
+curl -s ${openaiBase}/v1/chat/completions \\
   -H "Authorization: Bearer $API_KEY" -H "content-type: application/json" \\
   -d '{"model":"claude-sonnet-4.5","messages":[{"role":"user","content":"hi"}]}'
 
-# Anthropic Messages（同池 / 同粘性出口）
-curl -s ${base}/v1/messages \\
+# Anthropic Messages（同上游供给 / 同粘性出口）
+curl -s ${anthropicBase}/v1/messages \\
   -H "x-api-key: $API_KEY" -H "content-type: application/json" \\
   -H "anthropic-version: 2023-06-01" \\
   -d '{"model":"claude-sonnet-4.5","max_tokens":256,"messages":[{"role":"user","content":"hi"}]}'
 
 # 别名
-# POST ${base}/anthropic/v1/messages
+# POST ${anthropicBase}/anthropic/v1/messages
 
 # 说明
-# - 账号策略：round-robin / sticky（管理端池配置）
-# - 账号绑定代理池后，上游请求走粘性 SS 出口
+# - 上游策略：round-robin / sticky（系统设置）
+# - 上游账号绑定出口池后，请求走粘性 SS 出口
 # - 不提供 MITM / machine-id / ClientHello·JA4 伪造`;
   }
   $('envKeyHint').textContent = state.envKey && state.envKey.configured
     ? ('环境变量 API_KEY 已配置：' + (state.envKey.masked || '••••') + '（始终有效）')
-    : '未检测到环境变量 API_KEY；请创建下方密钥或配置 env。';
+    : '未检测到环境变量 API_KEY；请新建下方密钥或配置 env。';
   function keyStatsCells(k) {
     const req = k.requestCount != null ? k.requestCount : 0;
     const inn = k.inputTokens != null ? k.inputTokens : 0;
@@ -1573,6 +1798,12 @@ curl -s ${base}/v1/messages \\
       '</td></tr>';
   }).join('');
   $('apiKeyBody').innerHTML = (envRow + keyRows) || '<tr><td colspan="8" class="muted">暂无持久化密钥</td></tr>';
+  const emptyKeyCta = $('apiKeyEmptyCta');
+  if (emptyKeyCta) {
+    const hasPersisted = (state.apiKeys || []).length > 0;
+    const hasEnv = !!(state.envKey && state.envKey.configured);
+    emptyKeyCta.hidden = hasPersisted || hasEnv;
+  }
 
   const map = state.modelMap || {};
   const rows = Object.keys(map).sort().map(k =>
@@ -1703,7 +1934,7 @@ function renderSubs() {
       '<td class="mono">'+esc(quota)+'</td>'+
       '<td class="mono">'+esc(usage)+'</td>'+
       '<td>'+bits.join(' ')+'</td>'+
-      '<td><button data-refresh-sub="'+esc(r.id)+'">刷新订阅/用量</button></td>'+
+      '<td><button data-refresh-sub="'+esc(r.id)+'">刷新配额/用量</button></td>'+
       '</tr>';
   }).join('') || '<tr><td colspan="7" class="muted">无匹配账号</td></tr>';
 }
@@ -1761,7 +1992,7 @@ async function loadSubs() {
   try {
     state.subs = await api('/subscriptions');
     renderSubs();
-  } catch (e) { toast('订阅: '+e.message, true); }
+  } catch (e) { toast('配额用量: '+e.message, true); }
 }
 async function loadWebhooks() {
   try {
@@ -1805,60 +2036,196 @@ function fmtExitCell(exitId, exitIp) {
   return '<td class="mono" title="'+esc(tip)+'">'+esc(show)+'</td>';
 }
 
+function setKpi(el, cls, val, sub) {
+  if (!el) return;
+  el.className = 'kpi ' + (cls || 'idle');
+  const v = el.querySelector('.kpi-val');
+  const s = el.querySelector('.kpi-sub');
+  if (v) v.textContent = val;
+  if (s) s.innerHTML = sub;
+}
+function updateServiceBanner(availUpstream, successRate) {
+  const ban = $('serviceBanner');
+  const txt = $('serviceBannerText');
+  if (!ban || !txt) return;
+  let msg = '';
+  if (availUpstream === 0) {
+    msg = '无法对外服务 · 无可用上游。请先添加或启用上游账号。';
+  } else if (successRate != null && successRate < 90) {
+    msg = '服务降级 · 近窗成功率 ' + successRate.toFixed(1) + '%，建议排查故障诊断。';
+  }
+  if (msg) {
+    txt.textContent = msg;
+    ban.classList.add('show');
+  } else {
+    ban.classList.remove('show');
+  }
+}
 function renderDashboard() {
   const d = state.dashboard;
-  if (!d) {
-    $('dashAccountStats').innerHTML = '<div class="muted">加载中…</div>';
-    return;
+  const accounts = state.accounts || [];
+  const pools = state.pools || [];
+  const exits = state.exits || [];
+  const apiKeys = state.apiKeys || [];
+  const usage = state.usage || (d && d.usage) || null;
+  const dashA = (d && d.accounts) || {};
+  const dashP = (d && d.pools) || {};
+  const dashE = (d && d.exits) || {};
+
+  const totalAcc = dashA.total != null ? dashA.total : accounts.length;
+  const availAcc = dashA.available != null ? dashA.available : accounts.filter(a => a.enabled !== false && !a.suspended).length;
+  const disabledAcc = dashA.disabled != null ? dashA.disabled : accounts.filter(a => a.enabled === false).length;
+  const suspendedAcc = dashA.suspended != null ? dashA.suspended : accounts.filter(a => a.suspended).length;
+  const nearLimit = (state.subs && state.subs.rows)
+    ? state.subs.rows.filter(r => r.nearLimit).length
+    : 0;
+  const cooling = accounts.filter(a => a.cooldownUntil && a.cooldownUntil > Date.now()).length;
+
+  const emptyCta = $('homeEmptyCta');
+  if (emptyCta) emptyCta.hidden = totalAcc > 0;
+
+  // Serving KPI from recent usage / request totals (client-side only)
+  const totals = (usage && usage.totals) || (d && d.usage && d.usage.totals) || {};
+  const reqs = totals.requests || 0;
+  const okN = totals.success || 0;
+  const failN = totals.failed || 0;
+  let rate = null;
+  if (reqs > 0) rate = (okN / reqs) * 100;
+  let servingCls = 'idle';
+  let servingVal = '--';
+  let servingSub = '暂无请求统计';
+  if (availAcc === 0 && totalAcc >= 0) {
+    servingCls = 'err';
+    servingVal = '不可用';
+    servingSub = '无可用上游';
+  } else if (rate != null) {
+    servingVal = rate.toFixed(1) + '%';
+    servingSub = '累计成功 ' + okN + ' / ' + reqs + ' · 失败 ' + failN;
+    servingCls = rate >= 95 ? 'ok' : (rate >= 90 ? 'warn' : 'err');
+  } else if (availAcc > 0) {
+    servingCls = 'ok';
+    servingVal = '就绪';
+    servingSub = '有可用上游 · 暂无成功率样本';
   }
-  const a = d.accounts || {};
-  const p = d.pools || {};
-  const e = d.exits || {};
-  $('dashAccountStats').innerHTML =
-    '<div class="stat"><span class="muted">账号</span><b>'+(a.total||0)+'</b></div>'+
-    '<div class="stat"><span class="muted">启用</span><b>'+(a.enabled||0)+'</b></div>'+
-    '<div class="stat"><span class="muted">禁用</span><b>'+(a.disabled||0)+'</b></div>'+
-    '<div class="stat"><span class="muted">封禁</span><b>'+(a.suspended||0)+'</b></div>'+
-    '<div class="stat"><span class="muted">可用</span><b>'+(a.available||0)+'</b></div>';
-  $('dashPoolStats').innerHTML =
-    '<div class="stat"><span class="muted">代理池</span><b>'+(p.total||0)+'</b></div>'+
-    '<div class="stat"><span class="muted">池停用</span><b>'+(p.disabled||0)+'</b></div>'+
-    '<div class="stat"><span class="muted">已绑池账号</span><b>'+(p.boundAccounts||0)+'</b></div>'+
-    '<div class="stat"><span class="muted">出口</span><b>'+(e.total||0)+'</b></div>'+
-    '<div class="stat"><span class="muted">出口活跃</span><b>'+(e.active||0)+'</b></div>'+
-    '<div class="stat"><span class="muted">出口冷却</span><b>'+(e.cooldown||0)+'</b></div>';
-  const h = d.health || {};
-  $('dashHealth').innerHTML =
-    '<dt>策略</dt><dd class="mono">'+esc(h.strategy||'')+'</dd>'+
-    '<dt>uptime</dt><dd class="mono">'+esc(Math.floor(h.uptime||0))+'s</dd>'+
-    '<dt>请求日志</dt><dd class="mono">'+(d.requestLog? (d.requestLog.size+'/'+d.requestLog.capacity) : '—')+'</dd>';
-  $('dashShortcuts').innerHTML = (d.shortcuts||[]).map(s =>
-    '<button type="button" data-tab-jump="'+esc(s.tab)+'">'+esc(s.label)+'</button>'
-  ).join('');
-  const totals = (d.usage && d.usage.totals) || {};
-  $('dashUsageTotals').textContent =
-    '累计请求 '+(totals.requests||0)+' · 成功 '+(totals.success||0)+' · 失败 '+(totals.failed||0)+
-    ' · in '+(totals.inputTokens||0)+' / out '+(totals.outputTokens||0);
-  const recent = (d.usage && d.usage.recent) || [];
-  $('dashUsageBody').innerHTML = recent.map(r =>
-    '<tr>'+
-      '<td class="muted">'+esc(new Date(r.timestamp).toLocaleString())+'</td>'+
-      fmtAccountCell(r.accountId, r.accountLabel)+
-      fmtApiKeyCell(r.apiKeyId, r.apiKeyLabel)+
-      fmtExitCell(r.exitId, r.exitIp)+
-      '<td class="mono">'+esc(r.model||'')+'</td>'+
-      '<td>'+(r.success?'<span class="badge ok">ok</span>':'<span class="badge bad">fail</span>')+'</td>'+
-      '<td class="mono">'+(r.inputTokens||0)+'+'+(r.outputTokens||0)+'</td>'+
-      '<td>'+esc(r.responseTimeMs)+'ms</td>'+
-    '</tr>'
-  ).join('') || '<tr><td colspan="8" class="muted">暂无用量记录</td></tr>';
+  setKpi($('kpiServing'), servingCls, servingVal, servingSub);
+
+  // Upstream capacity
+  const upVal = (totalAcc === 0 && !d) ? '--' : (availAcc + ' / ' + totalAcc);
+  const upSub = totalAcc === 0
+    ? '暂无上游账号'
+    : ('启用水位 · 封禁 ' + suspendedAcc + ' · 禁用 ' + disabledAcc +
+       (cooling ? ' · 冷却 ' + cooling : '') +
+       (nearLimit ? ' · 配额告警 ' + nearLimit : ''));
+  let upCls = 'idle';
+  if (totalAcc === 0) upCls = 'err';
+  else if (availAcc === 0) upCls = 'err';
+  else if (nearLimit || suspendedAcc) upCls = 'warn';
+  else upCls = 'ok';
+  setKpi($('kpiUpstream'), upCls, upVal, upSub);
+  const kpiUp = $('kpiUpstream');
+  if (kpiUp) kpiUp.setAttribute('data-tab-jump', nearLimit ? 'subs' : 'accounts');
+
+  // Keys
+  const envConfigured = !!(state.envKey && state.envKey.configured);
+  const keyTotal = apiKeys.length + (envConfigured ? 1 : 0);
+  const activeKeys = apiKeys.filter(k => k.active !== false && !k.revokedAt).length + (envConfigured ? 1 : 0);
+  let keyTokens = 0;
+  apiKeys.forEach(k => { keyTokens += (k.inputTokens || 0) + (k.outputTokens || 0); });
+  if (state.envKey) keyTokens += (state.envKey.inputTokens || 0) + (state.envKey.outputTokens || 0);
+  const keyVal = (!d && keyTotal === 0 && !state.apiMeta) ? '--' : (activeKeys + ' / ' + keyTotal);
+  const keySub = keyTotal === 0
+    ? '暂无对外 Key · 去 API 接入新建'
+    : ('活跃 Key · 累计 ' + keyTokens + ' tokens');
+  setKpi($('kpiKeys'), keyTotal === 0 ? 'warn' : 'ok', keyVal, keySub);
+
+  // Egress
+  const poolTotal = dashP.total != null ? dashP.total : pools.length;
+  const poolDisabled = dashP.disabled != null ? dashP.disabled : pools.filter(p => p.disabled).length;
+  const poolOk = Math.max(0, poolTotal - poolDisabled);
+  const exitTotal = dashE.total != null ? dashE.total : exits.length;
+  const exitActive = dashE.active != null ? dashE.active : exits.filter(e => !e.disabled).length;
+  const exitCd = dashE.cooldown != null ? dashE.cooldown : 0;
+  const exitBad = Math.max(0, exitTotal - exitActive);
+  const egVal = (poolTotal === 0 && exitTotal === 0 && !d) ? '--' : (poolOk + ' 池 · ' + exitActive + ' 节点');
+  const egSub = (poolTotal === 0 && exitTotal === 0)
+    ? '暂无出口池 / 节点'
+    : ('出口池 ' + poolOk + '/' + poolTotal + ' 可用 · 节点 ' + exitActive + ' 正常 / ' + exitBad + ' 异常' +
+       (exitCd ? ' · 冷却 ' + exitCd : ''));
+  let egCls = 'idle';
+  if (poolTotal === 0 && exitTotal === 0) egCls = 'warn';
+  else if (exitBad > 0 || poolDisabled) egCls = 'warn';
+  else egCls = 'ok';
+  setKpi($('kpiEgress'), egCls, egVal, egSub);
+
+  updateServiceBanner(availAcc, rate);
+
+  // legacy hidden stats (kept for any external refs)
+  if ($('dashAccountStats')) {
+    $('dashAccountStats').innerHTML =
+      '<div class="stat"><span class="muted">上游账号</span><b>'+totalAcc+'</b></div>'+
+      '<div class="stat"><span class="muted">可用</span><b>'+availAcc+'</b></div>';
+  }
+  if ($('dashPoolStats')) {
+    $('dashPoolStats').innerHTML =
+      '<div class="stat"><span class="muted">出口池</span><b>'+poolTotal+'</b></div>'+
+      '<div class="stat"><span class="muted">出口节点</span><b>'+exitTotal+'</b></div>';
+  }
+
+  const h = (d && d.health) || {};
+  if ($('dashHealth')) {
+    $('dashHealth').innerHTML =
+      '<dt>策略</dt><dd class="mono">'+esc(h.strategy||'—')+'</dd>'+
+      '<dt>uptime</dt><dd class="mono">'+(h.uptime != null ? esc(Math.floor(h.uptime))+'s' : '—')+'</dd>'+
+      '<dt>请求日志</dt><dd class="mono">'+(d && d.requestLog ? (d.requestLog.size+'/'+d.requestLog.capacity) : '—')+'</dd>';
+  }
+  if ($('dashShortcuts')) {
+    const shortcuts = (d && d.shortcuts && d.shortcuts.length)
+      ? d.shortcuts
+      : [
+          { tab: 'accounts', label: '上游账号' },
+          { tab: 'api', label: 'API 接入' },
+          { tab: 'import', label: '批量导入' },
+          { tab: 'diagnose', label: '故障诊断' },
+          { tab: 'exits', label: '出口节点' },
+        ];
+    // rewrite known old labels
+    const labelMap = {
+      '账户': '上游账号', '账户管理': '上游账号', '代理池': '出口池',
+      'API 反代': 'API 接入', '订阅用量': '配额用量', 'TLS 探测': '指纹探测',
+      '首页': '网关总览', '诊断': '故障诊断', 'Webhook': '事件回调',
+    };
+    $('dashShortcuts').innerHTML = shortcuts.map(s => {
+      const lab = labelMap[s.label] || s.label;
+      return '<button type="button" data-tab-jump="'+esc(s.tab)+'">'+esc(lab)+'</button>';
+    }).join('');
+  }
+  if ($('dashUsageTotals')) {
+    $('dashUsageTotals').textContent = reqs
+      ? ('累计请求 '+reqs+' · 成功 '+okN+' · 失败 '+failN+' · in '+(totals.inputTokens||0)+' / out '+(totals.outputTokens||0))
+      : '暂无用量事件';
+  }
+  const recent = (usage && usage.recent) || (d && d.usage && d.usage.recent) || [];
+  if ($('dashUsageBody')) {
+    $('dashUsageBody').innerHTML = recent.map(r =>
+      '<tr>'+
+        '<td class="muted">'+esc(new Date(r.timestamp).toLocaleString())+'</td>'+
+        fmtAccountCell(r.accountId, r.accountLabel)+
+        fmtApiKeyCell(r.apiKeyId, r.apiKeyLabel)+
+        fmtExitCell(r.exitId, r.exitIp)+
+        '<td class="mono">'+esc(r.model||'')+'</td>'+
+        '<td>'+(r.success?'<span class="badge ok">ok</span>':'<span class="badge bad">fail</span>')+'</td>'+
+        '<td class="mono">'+(r.inputTokens||0)+'+'+(r.outputTokens||0)+'</td>'+
+        '<td>'+esc(r.responseTimeMs)+'ms</td>'+
+      '</tr>'
+    ).join('') || '<tr><td colspan="8" class="muted">暂无事件</td></tr>';
+  }
 }
 
 async function loadDashboard() {
   try {
     state.dashboard = await api('/dashboard');
     renderDashboard();
-  } catch (e) { toast('首页: '+e.message, true); }
+  } catch (e) { toast('网关总览: '+e.message, true); }
 }
 
 async function loadSettings() {
@@ -1999,7 +2366,7 @@ async function runBatch(action) {
   const body = { action, ids };
   if (action === 'bind-pool') {
     body.poolId = $('batchPool').value;
-    if (!body.poolId) { toast('先选择代理池', true); return; }
+    if (!body.poolId) { toast('先选择出口池', true); return; }
   }
   if (action === 'delete') {
     if (!confirm('确认删除选中的 ' + ids.length + ' 个账号？不可恢复。')) return;
@@ -2054,7 +2421,7 @@ document.body.addEventListener('click', async (ev) => {
       const r = await api('/pools/' + encodeURIComponent(t.dataset.assign) + '/assign', { method: 'POST', body: '{}' });
       toast('已分配 ' + ((r.assigned && r.assigned.length) || 0) + ' 个账号'); refresh();
     } else if (t.dataset.delpool) {
-      if (!confirm('删除代理池 ' + t.dataset.delpool + ' ?')) return;
+      if (!confirm('删除出口池 ' + t.dataset.delpool + ' ?')) return;
       await api('/pools/' + encodeURIComponent(t.dataset.delpool), { method: 'DELETE' });
       toast('池已删除'); refresh();
     } else if (t.dataset.pooldis) {
@@ -2077,7 +2444,7 @@ document.body.addEventListener('click', async (ev) => {
       const poolId = sel ? sel.value : '';
       if (!poolId) {
         await api('/accounts/' + encodeURIComponent(t.dataset.bind) + '/unbind-pool', { method: 'POST' });
-        toast('已解除代理池绑定');
+        toast('已解除出口池绑定');
       } else {
         const r = await api('/accounts/' + encodeURIComponent(t.dataset.bind) + '/bind-pool', { method: 'POST', body: JSON.stringify({ poolId }) });
         const tip = r.assignedExit ? ((r.assignedExit.exitId||'') + (r.assignedExit.exitIp ? ' · ' + r.assignedExit.exitIp : '')) : '';
@@ -2153,7 +2520,7 @@ document.body.addEventListener('click', async (ev) => {
         if (r.usageFetched) {
           const u = r.usage || {};
           const remain = Math.max(0, (u.limit||0) - (u.used||0));
-          toast('订阅/用量已刷新 · 剩余 ' + remain + ' / ' + (u.limit||0));
+          toast('配额/用量已刷新 · 剩余 ' + remain + ' / ' + (u.limit||0));
         } else {
           toast(r.usageError || 'Token 已刷新，用量拉取失败', true);
         }
@@ -2200,7 +2567,7 @@ $('upsertPool').onclick = async () => {
       exitIds,
       disabled: existing ? existing.disabled : undefined,
     }) });
-    toast('代理池已保存'); refresh();
+    toast('出口池已保存'); refresh();
   } catch (e) { toast(e.message, true); }
 };
 $('doImport').onclick = async () => {
@@ -2349,15 +2716,50 @@ $('runProbe').onclick = async () => {
   }
 };
 
-$('createApiKey').onclick = async () => {
+async function createApiKeyAction() {
   try {
     const r = await api('/api-keys', { method: 'POST', body: JSON.stringify({ label: $('newKeyLabel').value.trim() }) });
     const once = $('newKeyOnce');
-    once.hidden = false;
-    once.textContent = '新建 Key（仅显示一次）:\n' + (r.key && r.key.key ? r.key.key : JSON.stringify(r));
-    toast('API Key 已创建'); refresh();
+    const val = $('newKeyOnceValue');
+    const raw = (r.key && r.key.key) ? r.key.key : '';
+    if (once && val) {
+      once.hidden = false;
+      val.textContent = raw || JSON.stringify(r);
+      once.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+    toast('API Key 已创建 · 请立即复制');
+    await refresh();
   } catch (e) { toast(e.message, true); }
-};
+}
+$('createApiKey').onclick = () => createApiKeyAction();
+$('emptyCreateKeyHint') && ($('emptyCreateKeyHint').onclick = () => {
+  $('newKeyLabel') && $('newKeyLabel').focus();
+  createApiKeyAction();
+});
+$('copyNewKey') && ($('copyNewKey').onclick = async () => {
+  const v = $('newKeyOnceValue') ? $('newKeyOnceValue').textContent : '';
+  if (!v) return;
+  try {
+    await navigator.clipboard.writeText(v);
+    toast('已复制 Key');
+  } catch (_) {
+    toast('复制失败，请手动选中复制', true);
+  }
+});
+$('dismissNewKey') && ($('dismissNewKey').onclick = () => {
+  const once = $('newKeyOnce');
+  if (once) once.hidden = true;
+  if ($('newKeyOnceValue')) $('newKeyOnceValue').textContent = '';
+});
+document.body.addEventListener('click', (ev) => {
+  const btn = ev.target.closest('[data-copy-target]');
+  if (!btn) return;
+  const id = btn.getAttribute('data-copy-target');
+  const el = id && $(id);
+  if (!el) return;
+  const text = el.textContent || '';
+  navigator.clipboard.writeText(text).then(() => toast('已复制')).catch(() => toast('复制失败', true));
+});
 $('addModelMap').onclick = async () => {
   try {
     await api('/model-map', { method: 'POST', body: JSON.stringify({
@@ -2422,7 +2824,7 @@ $('runDiagnose').onclick = async () => {
     $('diagSummary').innerHTML =
       (r.ok ? '<span class="badge ok">OK</span>' : '<span class="badge bad">FAILED</span>')+
       ' <span class="muted">token: '+esc(r.token && r.token.message)+' · exit: '+esc(r.exit && r.exit.message)+'</span>'+
-      ' <button type="button" class="ghost" data-tab-jump="probe">打开 TLS 探测</button>';
+      ' <button type="button" class="ghost" data-tab-jump="probe">打开指纹探测</button>';
   } catch (e) {
     state.lastDiagText = e.message;
     $('diagReport').textContent = e.message;
