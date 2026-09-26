@@ -370,6 +370,7 @@ pre.docs{background:#0d1218;border:1px solid var(--line);border-radius:10px;padd
       <div class="row" style="margin-top:10px">
         <button class="primary" id="doAccountImport">导入账号</button>
       </div>
+      <div id="accountImportResult" class="muted" style="margin-top:12px"></div>
     </div>
     <div class="card">
       <h2>添加兼容上游（OpenAI / Anthropic API Key）</h2>
@@ -2265,11 +2266,66 @@ $('doAccountImport').onclick = async () => {
     } catch {
       body = { text: raw, mode };
     }
+    const out = $('accountImportResult');
+    if (out) out.innerHTML = '<div class="card muted">导入中…</div>';
     const r = await api('/accounts/import', { method: 'POST', body: JSON.stringify(body) });
-    const warn = (r.warnings && r.warnings.length) ? '，跳过 ' + r.warnings.length : '';
-    toast('已导入 ' + r.imported + ' / 总计 ' + r.total + warn);
+    const created = r.created != null ? r.created : 0;
+    const updated = r.updated != null ? r.updated : 0;
+    const failed = r.failed != null ? r.failed : 0;
+    const skipped = r.skipped != null ? r.skipped : ((r.warnings && r.warnings.length) || 0);
+    const summary =
+      '新建 ' + created +
+      ' · 更新 ' + updated +
+      ' · 跳过 ' + skipped +
+      ' · 失败 ' + failed +
+      ' · 库内总计 ' + (r.total != null ? r.total : '—');
+    toast(summary + (r.defaultPoolId ? ' · 默认池 ' + r.defaultPoolId : ''), failed > 0);
+    if (out) {
+      const rows = (r.accounts || []).map(function (a) {
+        const bind = a.unbound
+          ? '<span class="badge">未绑定</span>'
+          : ('<span class="mono">' + esc(a.outboundPoolId || '—') + '</span> → <span class="mono">' +
+              esc(a.outboundExitId || '—') + '</span>' +
+              (a.exitIp ? ' · ' + esc(a.exitIp) : '') +
+              (a.autoBound ? ' <span class="badge ok">自动绑定</span>' : ''));
+        const quota = a.quotaFetched
+          ? ('额度 ' + (a.quotaUsed != null ? a.quotaUsed : '?') + '/' + (a.quotaLimit != null ? a.quotaLimit : '?') +
+              (a.subscriptionTitle ? ' · ' + esc(a.subscriptionTitle) : ''))
+          : (a.quotaError
+              ? '<span class="badge bad">额度失败</span> ' + esc(a.quotaError)
+              : '<span class="muted">额度未拉取</span>');
+        const mid = a.machineId || a.deviceId || '—';
+        return '<tr>' +
+          '<td><span class="badge">' + esc(a.action || '') + '</span></td>' +
+          '<td>' + esc(a.label || a.email || a.id) + '</td>' +
+          '<td>' + esc((a.provider || '—') + ' / ' + (a.authMethod || '—')) + '</td>' +
+          '<td class="mono" style="font-size:11px">' + esc(mid) + '</td>' +
+          '<td>' + bind + (a.autoBindError ? '<div class="muted">' + esc(a.autoBindError) + '</div>' : '') + '</td>' +
+          '<td>' + quota + '</td>' +
+          '<td>' + (a.error ? '<span class="badge bad">' + esc(a.error) + '</span>' : '') + '</td>' +
+          '</tr>';
+      }).join('');
+      const warnHtml = (r.warnings && r.warnings.length)
+        ? '<p class="muted">警告：' + r.warnings.map(function (w) {
+            return esc((w.index != null ? '#' + w.index + ' ' : '') + (w.message || JSON.stringify(w)));
+          }).join('；') + '</p>'
+        : '';
+      out.innerHTML =
+        '<div class="card" style="grid-column:1/-1">' +
+        '<p><strong>导入结果</strong> — ' + esc(summary) +
+        (r.defaultPoolId ? ' · 默认池 <span class="mono">' + esc(r.defaultPoolId) + '</span>' : ' · 无默认池（多池时需 id/name=default）') +
+        '</p>' + warnHtml +
+        '<div style="overflow:auto"><table class="data"><thead><tr>' +
+        '<th>动作</th><th>账号</th><th>provider / auth</th><th>machineId</th><th>池 / 出口</th><th>额度</th><th>错误</th>' +
+        '</tr></thead><tbody>' + (rows || '<tr><td colspan="7" class="muted">无明细</td></tr>') +
+        '</tbody></table></div></div>';
+    }
     refresh();
-  } catch (e) { toast(e.message, true); }
+  } catch (e) {
+    const out = $('accountImportResult');
+    if (out) out.innerHTML = '<div class="card"><span class="badge bad">失败</span> ' + esc(e.message || String(e)) + '</div>';
+    toast(e.message, true);
+  }
 };
 $('runProbe').onclick = async () => {
   const accountId = $('probeAccount').value;
