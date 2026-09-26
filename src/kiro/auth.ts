@@ -49,11 +49,21 @@ export const KIRO_SOCIAL_PROFILE_ARN =
   'arn:aws:codewhisperer:us-east-1:699475941385:profile/EHGA3GRVQMUK'
 
 export const KIRO_BUILDER_ID_PLACEHOLDER_ARN =
+  'arn:aws:codewhisperer:us-east-1:638616132270:profile/AAAACCCCXXXX'
+
+/** Legacy wrong BuilderId ARN (account 699475941385 + KIRO_BUILDER_ID_PLACEHOLDER). */
+export const KIRO_BUILDER_ID_PLACEHOLDER_ARN_LEGACY =
   'arn:aws:codewhisperer:us-east-1:699475941385:profile/KIRO_BUILDER_ID_PLACEHOLDER'
 
 export function isPlaceholderProfileArn(arn?: string): boolean {
   if (!arn) return true
-  return arn.includes('PLACEHOLDER') || arn.includes('KIRO_BUILDER_ID_PLACEHOLDER')
+  return (
+    arn === KIRO_BUILDER_ID_PLACEHOLDER_ARN ||
+    arn === KIRO_BUILDER_ID_PLACEHOLDER_ARN_LEGACY ||
+    arn.includes('AAAACCCCXXXX') ||
+    arn.includes('KIRO_BUILDER_ID_PLACEHOLDER') ||
+    arn.includes('PLACEHOLDER')
+  )
 }
 
 export function resolveProfileArn(account: AccountRecord): string | undefined {
