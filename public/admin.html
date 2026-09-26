@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
 <title>kiro-acc · 团队 AI 网关运维台</title>
 <style>
 :root{
@@ -15,8 +15,9 @@
   --row-h:34px;--radius:8px;--gap:12px;
 }
 *{box-sizing:border-box}
-body{margin:0;font:14px/1.45 ui-sans-serif,system-ui,sans-serif;background:var(--bg);color:var(--text)}
-.shell{display:grid;grid-template-columns:220px 1fr;min-height:100vh}
+body{margin:0;font:14px/1.45 ui-sans-serif,system-ui,sans-serif;background:var(--bg);color:var(--text);overflow-x:hidden}
+body.nav-locked{overflow:hidden;touch-action:none}
+.shell{display:grid;grid-template-columns:220px 1fr;min-height:100vh;min-width:0}
 aside{background:#101820;border-right:1px solid var(--line);padding:18px 12px;position:sticky;top:0;height:100vh;display:flex;flex-direction:column;gap:8px}
 .brand{font-size:16px;font-weight:700}
 .nav{display:flex;flex-direction:column;gap:4px;margin-top:12px}
@@ -57,9 +58,23 @@ textarea{width:100%;min-height:140px}
 .kv{display:grid;grid-template-columns:120px 1fr;gap:4px 8px;margin:0}
 .kv dt{color:var(--muted)}
 .kv dd{margin:0}
-.table-wrap{overflow:auto;-webkit-overflow-scrolling:touch;max-width:100%}
+.table-wrap{
+  overflow-x:auto;overflow-y:auto;-webkit-overflow-scrolling:touch;
+  overscroll-behavior-x:contain;max-width:100%;min-width:0;position:relative;
+}
+.table-wrap>table{width:100%;min-width:720px;border-collapse:collapse}
+.table-wrap.table-narrow>table{min-width:480px}
+.table-wrap.table-xl>table{min-width:960px}
+.table-wrap.sticky-col>table th:first-child,
+.table-wrap.sticky-col>table td:first-child{
+  position:sticky;left:0;z-index:2;
+  background:var(--surface);white-space:nowrap;min-width:110px;
+  box-shadow:2px 0 4px -2px rgba(0,0,0,.45);
+}
+.table-wrap.sticky-col>table thead th:first-child{z-index:3;background:var(--surface)}
 .aside-top{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}
-.burger{display:none;min-width:44px;min-height:40px;align-items:center;justify-content:center}
+.burger{display:none;min-width:44px;min-height:44px;align-items:center;justify-content:center;flex-shrink:0}
+.nav-backdrop{display:none;pointer-events:none}
 details.menu{position:relative;display:inline-block}
 details.menu>summary{
   list-style:none;cursor:pointer;user-select:none;
@@ -88,27 +103,68 @@ pre.docs{background:#0d1218;border:1px solid var(--line);border-radius:10px;padd
 .tag-edit{width:110px;padding:4px 6px;font-size:12px}
 .batch-bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:10px}
 @media(max-width:860px){
-  .shell{grid-template-columns:1fr}
+  .shell{grid-template-columns:1fr;min-width:0}
   aside{
-    position:sticky;top:0;z-index:25;height:auto;
-    border-right:none;border-bottom:1px solid var(--line);
+    position:sticky;top:0;z-index:40;height:auto;
+    border-right:none;border-bottom:1px solid var(--border);
     padding:10px 12px;
+    padding-top:max(10px, env(safe-area-inset-top));
+    padding-left:max(12px, env(safe-area-inset-left));
+    padding-right:max(12px, env(safe-area-inset-right));
+    background:var(--surface);
   }
   .aside-foot{display:none}
   .burger{display:inline-flex}
-  .nav{display:none;flex-direction:column;flex-wrap:nowrap;margin-top:8px;padding-top:8px;border-top:1px solid var(--line)}
-  aside.nav-open .nav{display:flex}
-  .nav button{min-height:44px;width:100%}
-  header{padding:12px;gap:10px}
+  .nav-backdrop{
+    display:none;position:fixed;inset:0;z-index:35;
+    background:rgba(4,8,14,.55);-webkit-tap-highlight-color:transparent;
+    pointer-events:auto;
+  }
+  aside.nav-open .nav-backdrop{display:block}
+  .nav{
+    display:flex;flex-direction:column;flex-wrap:nowrap;
+    position:absolute;left:0;right:0;top:100%;
+    z-index:41;margin:0;padding:8px 12px max(14px, env(safe-area-inset-bottom));
+    max-height:min(85vh, calc(100dvh - 56px));
+    overflow:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;
+    background:var(--surface);border-bottom:1px solid var(--border);
+    border-radius:0 0 12px 12px;
+    box-shadow:0 18px 48px rgba(0,0,0,.5);
+    transform:translateY(-8px);opacity:0;visibility:hidden;pointer-events:none;
+    transition:opacity .18s ease,transform .18s ease,visibility .18s;
+    flex:none;min-height:0;
+  }
+  aside.nav-open .nav{
+    transform:translateY(0);opacity:1;visibility:visible;pointer-events:auto;
+  }
+  .nav-group-label{padding:10px 12px 4px}
+  .nav button{min-height:44px;width:100%;padding:12px}
+  header{padding:12px;gap:10px;padding-left:max(12px, env(safe-area-inset-left));padding-right:max(12px, env(safe-area-inset-right))}
   header .row{width:100%}
   header input#token{flex:1;min-width:0;width:auto}
-  main{padding:12px}
+  main{padding:12px;padding-left:max(12px, env(safe-area-inset-left));padding-right:max(12px, env(safe-area-inset-right));min-width:0}
+  .content,.card{min-width:0}
   .probe-grid{grid-template-columns:1fr}
-  .toast{left:12px;right:12px;bottom:12px;max-width:none}
+  .toast{left:12px;right:12px;bottom:max(12px, env(safe-area-inset-bottom));max-width:none}
   .menu-panel.menu-panel-sheet{
-    left:12px !important;right:12px !important;top:auto !important;bottom:12px !important;
-    min-width:0;width:auto;
+    left:max(12px, env(safe-area-inset-left)) !important;
+    right:max(12px, env(safe-area-inset-right)) !important;
+    top:auto !important;bottom:max(12px, env(safe-area-inset-bottom)) !important;
+    min-width:0;width:auto;max-height:min(55vh, 420px);
   }
+  /* subtle right-edge scroll hint on tables */
+  .table-wrap{
+    background:
+      linear-gradient(to right, var(--surface) 40%, transparent) left center / 20px 100% local no-repeat,
+      linear-gradient(to left, var(--surface) 40%, transparent) right center / 28px 100% local no-repeat,
+      var(--surface);
+  }
+  .row input[style*="width"],.row select{max-width:100%}
+}
+
+@media(max-width:720px){
+  .nav{max-height:min(85vh, calc(100dvh - 52px))}
+  header .row label.muted{display:none}
 }
 
 .account-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
@@ -173,7 +229,22 @@ pre.docs{background:#0d1218;border:1px solid var(--line);border-radius:10px;padd
 .drawer-models .chip{margin:0}
 .drawer-empty{font-size:12px;color:var(--muted);padding:6px 0}
 @media(max-width:520px){
-  .drawer{width:100%}
+  .drawer{
+    width:100%;
+    padding-bottom:env(safe-area-inset-bottom);
+  }
+  .drawer-head{
+    padding-top:max(14px, env(safe-area-inset-top));
+    padding-left:max(16px, env(safe-area-inset-left));
+    padding-right:max(16px, env(safe-area-inset-right));
+  }
+  .drawer-body{
+    padding-left:max(16px, env(safe-area-inset-left));
+    padding-right:max(16px, env(safe-area-inset-right));
+    padding-bottom:max(28px, env(safe-area-inset-bottom));
+  }
+  .account-card .ac-actions{width:100%}
+  .batch-bar input,.batch-bar select{flex:1 1 140px;min-width:0}
 }
 
 
@@ -245,6 +316,46 @@ button.primary{background:var(--accent);border-color:transparent;color:#061018;f
 .muted{color:var(--text-2)}
 th,td{padding:7px 10px}
 
+
+/* H5 filter/toolbar full-width helpers */
+@media(max-width:600px){
+  #exitFilter,#logFilter,#subFilter,#newKeyLabel,#mapFrom,#mapTo,#whUrl,#whLabel,#relayBaseUrl,#relayApiKey,#diagAccount,#probeAccount{
+    width:100% !important;min-width:0 !important;flex:1 1 100%;
+  }
+  .batch-bar{gap:8px}
+  .baseurl-row{flex-wrap:wrap}
+  .baseurl-row code{word-break:break-all}
+}
+/* Desktop: nav stays in-flow sidebar (undo any stray absolute) */
+@media(min-width:861px){
+  .nav{position:static;transform:none;opacity:1;visibility:visible;pointer-events:auto;max-height:none;box-shadow:none;border-radius:0;border-bottom:none}
+  .nav-backdrop{display:none !important}
+  body.nav-locked{overflow:auto;touch-action:auto}
+}
+
+/* Final H5 nav overrides (after theme) — keep drawer overlay, not inline expand */
+@media(max-width:860px){
+  aside{overflow:visible}
+  .aside-top{position:relative;z-index:42}
+  .nav{
+    display:flex !important;
+    position:absolute;left:0;right:0;top:100%;
+    z-index:41;margin:0 !important;
+    padding:8px 12px max(14px, env(safe-area-inset-bottom));
+    max-height:min(85vh, calc(100dvh - 56px));
+    overflow:auto !important;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;
+    flex:none !important;min-height:0 !important;
+    background:var(--surface);border:none;border-bottom:1px solid var(--border);
+    border-radius:0 0 12px 12px;
+    box-shadow:0 18px 48px rgba(0,0,0,.5);
+    transform:translateY(-8px);opacity:0;visibility:hidden;pointer-events:none;
+    transition:opacity .18s ease,transform .18s ease,visibility .18s;
+  }
+  aside.nav-open .nav{
+    transform:translateY(0);opacity:1;visibility:visible;pointer-events:auto;
+  }
+  .nav button{min-height:44px;width:100%}
+}
 </style>
 </head>
 <body>
@@ -257,6 +368,7 @@ th,td{padding:7px 10px}
     </div>
     <button type="button" class="burger" id="burger" aria-label="菜单" aria-expanded="false">☰</button>
   </div>
+  <div class="nav-backdrop" id="navBackdrop" aria-hidden="true"></div>
   <nav class="nav" id="nav">
     <div class="nav-group">
       <div class="nav-group-label">概览</div>
@@ -353,7 +465,7 @@ th,td{padding:7px 10px}
     <div class="card">
       <h2>最近事件</h2>
       <p class="muted" id="dashUsageTotals"></p>
-      <div class="table-wrap">
+      <div class="table-wrap sticky-col table-xl">
         <table>
           <thead><tr><th>时间</th><th>账号</th><th>API Key</th><th>出口</th><th>模型</th><th>结果</th><th>tokens</th><th>耗时</th></tr></thead>
           <tbody id="dashUsageBody"></tbody>
@@ -475,7 +587,7 @@ th,td{padding:7px 10px}
         </div>
         <div class="muted" id="exitCount"></div>
       </div>
-      <div class="table-wrap" style="max-height:70vh">
+      <div class="table-wrap sticky-col table-xl" style="max-height:70vh">
         <table>
           <thead>
             <tr><th>ID</th><th>Server</th><th>Password</th><th>Exit IP</th><th>use</th><th>ban</th><th>状态</th><th>操作</th></tr>
@@ -591,7 +703,7 @@ th,td{padding:7px 10px}
         <button class="primary" type="button" id="emptyCreateKeyHint">新建第一个 Key</button>
       </div>
       <div id="envKeyHint" class="muted" style="margin-bottom:8px"></div>
-      <div class="table-wrap">
+      <div class="table-wrap sticky-col table-xl">
         <table>
           <thead><tr><th>标签</th><th>Key</th><th>状态</th><th>请求数</th><th>Token（入/出）</th><th>最近使用</th><th>创建</th><th>操作</th></tr></thead>
           <tbody id="apiKeyBody"></tbody>
@@ -614,7 +726,7 @@ th,td{padding:7px 10px}
         <input id="mapTo" placeholder="实际调用的上游模型" style="width:180px"/>
         <button class="primary" id="addModelMap">添加 / 更新</button>
       </div>
-      <div class="table-wrap">
+      <div class="table-wrap table-narrow">
         <table>
           <thead><tr><th>From</th><th>To</th><th></th></tr></thead>
           <tbody id="modelMapBody"></tbody>
@@ -636,7 +748,7 @@ th,td{padding:7px 10px}
         <button class="danger" id="clearLog">清空</button>
         <span class="muted" id="logSize"></span>
       </div>
-      <div class="table-wrap" style="max-height:360px">
+      <div class="table-wrap sticky-col table-xl" style="max-height:360px">
         <table>
           <thead><tr><th>时间</th><th>风格</th><th>模型</th><th>账号</th><th>API Key</th><th>出口</th><th>状态</th><th>耗时</th><th>错误</th></tr></thead>
           <tbody id="requestLogBody"></tbody>
@@ -668,7 +780,7 @@ th,td{padding:7px 10px}
         </select>
         <button id="reloadSubs">刷新列表</button>
       </div>
-      <div class="table-wrap">
+      <div class="table-wrap sticky-col">
         <table>
           <thead>
             <tr>
@@ -1836,6 +1948,30 @@ async function reloadRequestLog() {
   } catch (e) { toast(e.message, true); }
 }
 
+function closeMobileNav() {
+  const asideEl = $('aside');
+  const burgerEl = $('burger');
+  const backdrop = $('navBackdrop');
+  if (asideEl) asideEl.classList.remove('nav-open');
+  if (burgerEl) burgerEl.setAttribute('aria-expanded', 'false');
+  document.body.classList.remove('nav-locked');
+  if (backdrop) backdrop.setAttribute('aria-hidden', 'true');
+}
+function openMobileNav() {
+  const asideEl = $('aside');
+  const burgerEl = $('burger');
+  const backdrop = $('navBackdrop');
+  if (asideEl) asideEl.classList.add('nav-open');
+  if (burgerEl) burgerEl.setAttribute('aria-expanded', 'true');
+  document.body.classList.add('nav-locked');
+  if (backdrop) backdrop.setAttribute('aria-hidden', 'false');
+}
+function toggleMobileNav() {
+  const asideEl = $('aside');
+  if (asideEl && asideEl.classList.contains('nav-open')) closeMobileNav();
+  else openMobileNav();
+}
+
 function showTab(name, opts) {
   opts = opts || {};
   if (!ALL_TABS.includes(name)) name = 'home';
@@ -1844,10 +1980,7 @@ function showTab(name, opts) {
     const el = $('tab-'+t); if (el) el.hidden = t !== name;
   });
   $('pageTitle').textContent = titles[name] || name;
-  const asideEl = $('aside');
-  const burgerEl = $('burger');
-  if (asideEl) asideEl.classList.remove('nav-open');
-  if (burgerEl) burgerEl.setAttribute('aria-expanded', 'false');
+  closeMobileNav();
   if (name === 'api') { renderApiPanel(); reloadRequestLog(); }
   if (name === 'subs') renderSubs();
   if (name === 'webhooks') renderWebhooks();
@@ -2325,6 +2458,8 @@ $('accountDrawer') && $('accountDrawer').addEventListener('click', (ev) => {
 });
 document.addEventListener('keydown', (ev) => {
   if (ev.key !== 'Escape') return;
+  const asideEl = $('aside');
+  if (asideEl && asideEl.classList.contains('nav-open')) { closeMobileNav(); return; }
   if ($('accountDrawer') && $('accountDrawer').classList.contains('open')) { closeAccountDrawer(); return; }
   if ($('chatModal') && $('chatModal').classList.contains('open')) closeChatModal();
 });
@@ -2385,18 +2520,23 @@ document.querySelectorAll('[data-batch]').forEach(btn => {
 (() => {
   const burger = $('burger');
   const aside = $('aside');
+  const backdrop = $('navBackdrop');
   if (burger && aside) {
     burger.addEventListener('click', (ev) => {
       ev.stopPropagation();
-      const open = aside.classList.toggle('nav-open');
-      burger.setAttribute('aria-expanded', open ? 'true' : 'false');
+      toggleMobileNav();
     });
+  }
+  if (backdrop) {
+    backdrop.addEventListener('click', () => closeMobileNav());
   }
   window.addEventListener('scroll', () => {
     document.querySelectorAll('details.menu[open]').forEach(positionMenu);
   }, true);
   window.addEventListener('resize', () => {
     document.querySelectorAll('details.menu[open]').forEach(positionMenu);
+    // Desktop: ensure mobile nav state cleared when crossing breakpoint
+    if (window.matchMedia('(min-width:861px)').matches) closeMobileNav();
   });
   document.addEventListener('click', (ev) => {
     const t = ev.target;
