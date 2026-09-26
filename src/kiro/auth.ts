@@ -117,36 +117,46 @@ async function refreshOidc(
   if (!account.refreshToken) {
     return { success: false, error: 'No refreshToken for OIDC account' }
   }
-  const body = new URLSearchParams({
-    grant_type: 'refresh_token',
-    refresh_token: account.refreshToken,
-  })
-  if (account.clientId) body.set('client_id', account.clientId)
-  if (account.clientSecret) body.set('client_secret', account.clientSecret)
+  // AWS BuilderId / IdC OIDC expects JSON camelCase (not form-urlencoded OAuth).
+  // Live A/B: application/x-www-form-urlencoded → 400 invalid_request;
+  // JSON { clientId, clientSecret, refreshToken, grantType } → 200.
+  const body: Record<string, string> = {
+    refreshToken: account.refreshToken,
+    grantType: 'refresh_token',
+  }
+  if (account.clientId) body.clientId = account.clientId
+  if (account.clientSecret) body.clientSecret = account.clientSecret
 
   try {
     const res = await accountFetch(account, tokenUrl, {
       method: 'POST',
-      headers: { 'content-type': 'application/x-www-form-urlencoded' },
-      body,
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
     })
     const text = await res.text()
     if (!res.ok) {
       return { success: false, error: `OIDC refresh HTTP ${res.status}: ${text.slice(0, 300)}` }
     }
     const data = JSON.parse(text) as {
+      accessToken?: string
+      refreshToken?: string
+      expiresIn?: number
       access_token?: string
       refresh_token?: string
       expires_in?: number
     }
-    if (!data.access_token) {
-      return { success: false, error: 'OIDC refresh response missing access_token' }
+    const accessToken = data.accessToken ?? data.access_token
+    if (!accessToken) {
+      return { success: false, error: 'OIDC refresh response missing accessToken' }
     }
+    const refreshToken =
+      data.refreshToken ?? data.refresh_token ?? account.refreshToken
+    const expiresIn = data.expiresIn ?? data.expires_in ?? 3600
     return {
       success: true,
-      accessToken: data.access_token,
-      refreshToken: data.refresh_token || account.refreshToken,
-      expiresAt: Date.now() + (data.expires_in ?? 3600) * 1000,
+      accessToken,
+      refreshToken,
+      expiresAt: Date.now() + expiresIn * 1000,
     }
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : String(err) }
