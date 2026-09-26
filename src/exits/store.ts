@@ -214,6 +214,19 @@ export class ExitsStore {
     return { ...e }
   }
 
+  /**
+   * Decrement useCount (floor 0) when a healthy account is removed/unbound.
+   * Blocked / quota-exhausted deletes must NOT call this — see
+   * shouldPreserveExitUsageOnDelete.
+   */
+  async releaseUse(id: string): Promise<ExitEntry> {
+    const e = this.findMutable(id)
+    e.useCount = Math.max(0, (e.useCount ?? 0) - 1)
+    this.data.updatedAt = Date.now()
+    await this.file.write(this.data)
+    return { ...e }
+  }
+
   async bumpBan(
     id: string,
     opts?: { cooldownMs?: number; now?: number },
