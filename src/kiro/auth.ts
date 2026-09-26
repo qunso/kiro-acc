@@ -6,6 +6,7 @@ import type { AccountRecord } from '../accounts/types.js'
 import { fetch as undiciFetch, type RequestInit as UndiciRequestInit } from 'undici'
 import { getDispatcherForAccount } from '../net/outboundDispatcher.js'
 
+/** Sticky outbound exit (SS/undici) for OIDC/social refresh — same JA4 path as chat. */
 async function accountFetch(
   account: AccountRecord,
   url: string,

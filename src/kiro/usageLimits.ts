@@ -13,9 +13,27 @@ import {
 } from '../accounts/machineId.js'
 import { getDispatcherForAccount } from '../net/outboundDispatcher.js'
 import { isPlaceholderProfileArn, resolveProfileArn } from './auth.js'
-import { getKiroIdeVersion } from './ideVersion.js'
 
-const AWS_SDK_VERSION = '1.0.34'
+/**
+ * getUsageLimits is sensitive to KiroIDE UA major: live BuilderId accounts return
+ * HTTP 200 with KiroIDE-0.6.18 (upstream registrar) but HTTP 400 "Invalid profileArn"
+ * with KiroIDE-1.1.x even when profileArn is omitted. Chat/generateAssistantResponse
+ * keeps live IDE version via getKiroIdeVersion(); only this REST path is pinned.
+ *
+ * Override with KIRO_USAGE_LIMITS_IDE_VERSION / KIRO_USAGE_LIMITS_AWS_SDK_VERSION.
+ */
+export const USAGE_LIMITS_KIRO_VERSION_DEFAULT = '0.6.18'
+export const USAGE_LIMITS_AWS_SDK_VERSION_DEFAULT = '1.0.18'
+
+export function usageLimitsKiroVersion(): string {
+  return process.env.KIRO_USAGE_LIMITS_IDE_VERSION?.trim() || USAGE_LIMITS_KIRO_VERSION_DEFAULT
+}
+
+export function usageLimitsAwsSdkVersion(): string {
+  return (
+    process.env.KIRO_USAGE_LIMITS_AWS_SDK_VERSION?.trim() || USAGE_LIMITS_AWS_SDK_VERSION_DEFAULT
+  )
+}
 
 const REST_BASES: Record<string, string> = {
   'us-east-1': 'https://q.us-east-1.amazonaws.com',
@@ -124,17 +142,19 @@ export function profileArnForUsageLimits(account: AccountRecord): string | undef
 
 function authHeaders(account: AccountRecord): Record<string, string> {
   const machineId = resolveMachineIdForRequest(account)
+  const kiroVersion = usageLimitsKiroVersion()
+  const awsSdkVersion = usageLimitsAwsSdkVersion()
   const headers: Record<string, string> = {
     Accept: 'application/json',
     Authorization: `Bearer ${account.accessToken}`,
     'user-agent': buildKiroUserAgent({
-      kiroVersion: getKiroIdeVersion(),
-      awsSdkVersion: AWS_SDK_VERSION,
+      kiroVersion,
+      awsSdkVersion,
       machineId,
     }),
     'x-amz-user-agent': buildKiroAmzUserAgent({
-      kiroVersion: getKiroIdeVersion(),
-      awsSdkVersion: AWS_SDK_VERSION,
+      kiroVersion,
+      awsSdkVersion,
       machineId,
     }),
     'amz-sdk-invocation-id': randomUUID(),
@@ -146,6 +166,11 @@ function authHeaders(account: AccountRecord): Record<string, string> {
   return headers
 }
 
+/**
+ * Account-bound GET: sticky outbound exit via getDispatcherForAccount (same SS/undici
+ * path as chat + OIDC refresh) so TLS/JA4 stays consistent. Never bare global-only
+ * fetch when the account has outboundProxyUrl.
+ */
 async function accountGet(
   account: AccountRecord,
   url: string,
@@ -275,6 +300,23 @@ export function quotaDetailFromCredit(q: CreditQuota): AccountQuotaDetail {
  * GET {q|codewhisperer}.{region}.amazonaws.com/getUsageLimits
  * Tries regional Q endpoint, EU/US fallback, then codewhisperer.us-east-1.
  */
+function aggregateUsageLimitsErrors(errors: UsageLimitsError[]): UsageLimitsError {
+  if (errors.length === 0) {
+    return new UsageLimitsError('getUsageLimits failed on all endpoints')
+  }
+  // Prefer Amazon Q host failure over codewhisperer fallback — CW often repeats the
+  // same 400 Invalid profileArn and would otherwise become the misleading final error.
+  const preferred =
+    errors.find((e) => /@ https:\/\/q\./.test(e.message)) || errors[0]!
+  if (errors.length === 1) return preferred
+  const tried = errors.map((e) => e.message.replace(/^getUsageLimits /, '')).join('; ')
+  return new UsageLimitsError(
+    `${preferred.message} (also tried: ${tried})`,
+    preferred.statusCode,
+    preferred.body,
+  )
+}
+
 export async function getUsageLimits(account: AccountRecord): Promise<CreditQuota> {
   if (!account.accessToken) {
     throw new UsageLimitsError('account has no accessToken')
@@ -284,26 +326,28 @@ export async function getUsageLimits(account: AccountRecord): Promise<CreditQuot
   const path = buildPath(profileArn)
   const region = account.region || 'us-east-1'
   const primary = restBaseForRegion(region)
+  // Prefer q.us-east-1 / q.eu-central-1 (upstream); codewhisperer is last-resort only.
   const candidates = [
     primary,
     fallbackRestBase(primary),
     'https://codewhisperer.us-east-1.amazonaws.com',
   ].filter((v, i, arr) => arr.indexOf(v) === i)
 
-  let lastErr: UsageLimitsError | undefined
+  const errors: UsageLimitsError[] = []
   for (const base of candidates) {
     const url = `${base}${path}`
     try {
       const res = await accountGet(account, url)
       const text = await res.text()
       if (!res.ok) {
-        lastErr = new UsageLimitsError(
+        const err = new UsageLimitsError(
           `getUsageLimits HTTP ${res.status} @ ${base}`,
           res.status,
           text.slice(0, 500),
         )
-        // try next on 403/404/5xx
-        if (res.status === 401) throw lastErr
+        errors.push(err)
+        // try next on 403/404/5xx / 400; auth failure is fatal
+        if (res.status === 401) throw err
         continue
       }
       let raw: UsageLimitsResponse
@@ -315,11 +359,12 @@ export async function getUsageLimits(account: AccountRecord): Promise<CreditQuot
       return creditQuotaFromUsageLimits(raw, base)
     } catch (err) {
       if (err instanceof UsageLimitsError && err.statusCode === 401) throw err
-      lastErr =
+      errors.push(
         err instanceof UsageLimitsError
           ? err
-          : new UsageLimitsError(err instanceof Error ? err.message : String(err))
+          : new UsageLimitsError(err instanceof Error ? err.message : String(err)),
+      )
     }
   }
-  throw lastErr || new UsageLimitsError('getUsageLimits failed on all endpoints')
+  throw aggregateUsageLimitsErrors(errors)
 }
