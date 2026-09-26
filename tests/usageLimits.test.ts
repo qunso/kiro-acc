@@ -82,6 +82,17 @@ describe('creditQuotaFromUsageLimits', () => {
     ).toBeUndefined()
     expect(
       profileArnForUsageLimits({
+        id: 'a2',
+        label: 'a2',
+        accessToken: 't',
+        createdAt: 1,
+        updatedAt: 1,
+        profileArn: 'arn:aws:codewhisperer:us-east-1:638616132270:profile/AAAACCCCXXXX',
+        authMethod: 'builder-id',
+      } as any),
+    ).toBeUndefined()
+    expect(
+      profileArnForUsageLimits({
         id: 'b',
         label: 'b',
         accessToken: 't',
