@@ -26,7 +26,7 @@ import type { AppConfig } from '../config.js'
 import type { ExitsStore } from '../exits/store.js'
 import { pickExitId, type ExitAssignStrategy } from '../exits/assign.js'
 import type { PoolsStore, ProxyPool } from '../pools/store.js'
-import { assignAccountToPool, rebindAccountExitAfterBan } from '../pools/rebind.js'
+import { assignAccountToPool, rebindAccountExitAfterBan, removeAccountHandlingExitUsage } from '../pools/rebind.js'
 import { probeMany } from '../exits/probe.js'
 import { probeTlsFingerprint } from './tlsProbe.js'
 import type { ApiKeyStore } from '../apiKeys/store.js'
@@ -196,9 +196,17 @@ export function createAdminRoutes(
   })
 
   app.delete('/accounts/:id', async (c) => {
-    const ok = await store.remove(c.req.param('id'))
-    if (!ok) return c.json({ error: 'Not found' }, 404)
-    return c.json({ ok: true })
+    const result = await removeAccountHandlingExitUsage(c.req.param('id'), {
+      accounts: store,
+      exits: exitsStore,
+    })
+    if (!result.ok) return c.json({ error: 'Not found' }, 404)
+    return c.json({
+      ok: true,
+      exitId: result.exitId ?? null,
+      preservedExitUsage: result.preservedExitUsage,
+      releasedExitUsage: result.releasedExitUsage,
+    })
   })
 
   app.post('/accounts/:id/enable', async (c) => {
@@ -259,7 +267,7 @@ export function createAdminRoutes(
     if (!action) return c.json({ error: 'action is required' }, 400)
     if (!ids.length) return c.json({ error: 'ids array required' }, 400)
 
-    const results: Array<{ id: string; ok: boolean; error?: string }> = []
+    const results: Array<{ id: string; ok: boolean; error?: string; preservedExitUsage?: boolean; releasedExitUsage?: boolean; exitId?: string }> = []
 
     for (const id of ids) {
       try {
@@ -283,8 +291,18 @@ export function createAdminRoutes(
             results.push({ id, ok: true })
             break
           case 'delete': {
-            const ok = await store.remove(id)
-            results.push({ id, ok, error: ok ? undefined : 'Not found' })
+            const result = await removeAccountHandlingExitUsage(id, {
+              accounts: store,
+              exits: exitsStore,
+            })
+            results.push({
+              id,
+              ok: result.ok,
+              error: result.ok ? undefined : 'Not found',
+              preservedExitUsage: result.preservedExitUsage,
+              releasedExitUsage: result.releasedExitUsage,
+              exitId: result.exitId,
+            })
             break
           }
           case 'refresh': {

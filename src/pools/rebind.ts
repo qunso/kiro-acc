@@ -123,3 +123,82 @@ export async function assignAccountToPool(
     }
   }
 }
+
+/**
+ * Blocked (suspended) or quota-exhausted accounts burned an exit slot.
+ * Deleting them must NOT release exit useCount — keep IP usage as-is so
+ * load-balancing still treats that exit as occupied.
+ */
+export function shouldPreserveExitUsageOnDelete(
+  account: AccountRecord,
+  opts?: { now?: number; isQuotaExhausted?: (a: AccountRecord, now: number) => boolean },
+): boolean {
+  const now = opts?.now ?? Date.now()
+  if (account.suspended === true) return true
+  if (typeof account.suspendedAt === 'number' && account.suspendedAt > 0) return true
+  if (opts?.isQuotaExhausted) return opts.isQuotaExhausted(account, now)
+  // Inline same rules as AccountPool.isQuotaExhausted (avoid circular import).
+  if (account.quotaResetAt && account.quotaResetAt <= now) return false
+  if (account.quotaExhaustedAt && account.quotaExhaustedAt > 0) return true
+  if (
+    account.quotaLimit &&
+    account.quotaLimit > 0 &&
+    (account.quotaUsed ?? 0) >= account.quotaLimit
+  ) {
+    return true
+  }
+  return false
+}
+
+export interface RemoveAccountExitResult {
+  ok: boolean
+  accountId: string
+  exitId?: string
+  /** true when useCount was left unchanged because account was blocked/exhausted */
+  preservedExitUsage: boolean
+  /** true when releaseUse was applied */
+  releasedExitUsage: boolean
+}
+
+/**
+ * Delete an account and adjust exit useCount:
+ * - healthy + outboundExitId → releaseUse (decrement)
+ * - blocked or quota-exhausted → keep useCount (do not free the IP slot)
+ * - no outboundExitId → just delete
+ */
+export async function removeAccountHandlingExitUsage(
+  accountId: string,
+  deps: { accounts: AccountStore; exits?: ExitsStore },
+): Promise<RemoveAccountExitResult> {
+  // Pool may hold newer suspended/quota flags than the accounts map.
+  deps.accounts.syncFromPool(accountId)
+  const account = deps.accounts.get(accountId)
+  if (!account) {
+    return { ok: false, accountId, preservedExitUsage: false, releasedExitUsage: false }
+  }
+  const exitId = account.outboundExitId
+  let preservedExitUsage = false
+  let releasedExitUsage = false
+
+  if (exitId && deps.exits) {
+    if (shouldPreserveExitUsageOnDelete(account, {
+      isQuotaExhausted: (a, now) => deps.accounts.pool.isQuotaExhausted(a, now),
+    })) {
+      preservedExitUsage = true
+    } else {
+      try {
+        await deps.exits.releaseUse(exitId)
+        releasedExitUsage = true
+      } catch (err) {
+        console.warn(
+          `[removeAccount] releaseUse failed for exit=${exitId}:`,
+          err instanceof Error ? err.message : err,
+        )
+      }
+    }
+  }
+
+  const ok = await deps.accounts.remove(accountId)
+  return { ok, accountId, exitId, preservedExitUsage, releasedExitUsage }
+}
+
