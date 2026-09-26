@@ -24,6 +24,27 @@ const emptyUsage = (): UsageStore => ({
   totals: { requests: 0, success: 0, failed: 0, inputTokens: 0, outputTokens: 0 },
 })
 
+
+export type ImportAccountAction = 'created' | 'updated' | 'failed'
+
+export interface ImportAccountItemResult {
+  id: string
+  action: ImportAccountAction
+  error?: string
+}
+
+export interface ImportAccountsResult {
+  /** created + updated (backward-compatible "successful imports") */
+  imported: number
+  created: number
+  updated: number
+  failed: number
+  /** Reserved; normalize-time skips are reported by the admin route */
+  skipped: number
+  total: number
+  items: ImportAccountItemResult[]
+}
+
 export class AccountStore {
   private accountsFile: JsonStore<AccountRecord[]>
   private configFile: JsonStore<PersistedConfig>
@@ -375,32 +396,64 @@ export class AccountStore {
   async importAccounts(
     items: AccountCreateInput[],
     mode: 'merge' | 'replace' = 'merge',
-  ): Promise<{ imported: number; total: number }> {
+  ): Promise<ImportAccountsResult> {
     if (mode === 'replace') {
       this.accounts.clear()
       this.pool.clear()
     }
-    let imported = 0
+    const itemsOut: ImportAccountItemResult[] = []
+    let created = 0
+    let updated = 0
+    let failed = 0
     for (const item of items) {
       const id = item.id || randomUUID()
-      if (this.accounts.has(id)) {
-        // Preserve existing machineId when import payload omits/empties it.
-        // Non-empty machineId/deviceId from the payload still replaces.
-        const patch: AccountUpdateInput = { ...item }
-        if (!pickStoredMachineId({ machineId: item.machineId, deviceId: item.deviceId })) {
-          delete patch.machineId
-          delete patch.deviceId
+      try {
+        if (this.accounts.has(id)) {
+          // Preserve existing machineId when import payload omits/empties it.
+          // Non-empty machineId/deviceId from the payload still replaces.
+          const patch: AccountUpdateInput = { ...item }
+          if (!pickStoredMachineId({ machineId: item.machineId, deviceId: item.deviceId })) {
+            delete patch.machineId
+            delete patch.deviceId
+          }
+          // Import payloads omit exit/pool when unset (asString → undefined). Do not
+          // wipe sticky outbound binding on merge update.
+          for (const key of ['outboundExitId', 'outboundPoolId', 'outboundProxyUrl'] as const) {
+            const v = patch[key]
+            if (v == null || (typeof v === 'string' && !v.trim())) {
+              delete patch[key]
+            }
+          }
+          await this.update(id, patch)
+          // Existing row may have had no machineId (pre-migration data).
+          await this.ensureMachineId(id)
+          updated++
+          itemsOut.push({ id, action: 'updated' })
+        } else {
+          // create() generates machineId when missing.
+          await this.create({ ...item, id })
+          created++
+          itemsOut.push({ id, action: 'created' })
         }
-        await this.update(id, patch)
-        // Existing row may have had no machineId (pre-migration data).
-        await this.ensureMachineId(id)
-      } else {
-        // create() generates machineId when missing.
-        await this.create({ ...item, id })
+      } catch (err) {
+        failed++
+        itemsOut.push({
+          id,
+          action: 'failed',
+          error: err instanceof Error ? err.message : String(err),
+        })
       }
-      imported++
     }
-    return { imported, total: this.accounts.size }
+    const imported = created + updated
+    return {
+      imported,
+      created,
+      updated,
+      failed,
+      skipped: 0,
+      total: this.accounts.size,
+      items: itemsOut,
+    }
   }
 
   exportAccounts(): AccountRecord[] {

@@ -14,6 +14,12 @@ import {
 } from '../proxy/compatRelay.js'
 import { normalizeAccountImport } from '../accounts/importNormalize.js'
 import {
+  maybeAutoBindImportedAccount,
+  maybeFetchQuotaOnImport,
+  summarizeImportedAccount,
+} from '../accounts/importPostProcess.js'
+import { resolveDefaultPool } from '../pools/defaultPool.js'
+import {
   isTokenExpiringSoon,
   refreshAccountToken,
   resolveProfileArn,
@@ -446,14 +452,99 @@ export function createAdminRoutes(
       return c.json({ error: 'Invalid JSON body' }, 400)
     }
     const normalized = normalizeAccountImport(body)
+    const skipped = normalized.warnings.length
     if (!normalized.accounts.length) {
       return c.json(
-        { error: 'no accounts recognized', warnings: normalized.warnings },
+        {
+          error: 'no accounts recognized',
+          imported: 0,
+          created: 0,
+          updated: 0,
+          failed: 0,
+          skipped,
+          total: store.list().length,
+          accounts: [] as unknown[],
+          defaultPoolId: poolsStore ? resolveDefaultPool(poolsStore)?.id ?? null : null,
+          warnings: normalized.warnings,
+        },
         400,
       )
     }
     const result = await store.importAccounts(normalized.accounts, normalized.mode)
-    return c.json({ ...result, mode: normalized.mode, warnings: normalized.warnings })
+    const defaultPoolId = poolsStore ? resolveDefaultPool(poolsStore)?.id ?? null : null
+    const accountsOut = []
+    for (const item of result.items) {
+      if (item.action === 'failed') {
+        accountsOut.push(
+          summarizeImportedAccount(undefined, {
+            id: item.id,
+            action: 'failed',
+            error: item.error,
+          }, exitsStore),
+        )
+        continue
+      }
+      let acc = store.get(item.id)
+      if (!acc) {
+        accountsOut.push(
+          summarizeImportedAccount(undefined, {
+            id: item.id,
+            action: item.action,
+            error: 'missing after import',
+          }, exitsStore),
+        )
+        continue
+      }
+
+      let autoBound = false
+      let autoBindError: string | undefined
+      const bind = await maybeAutoBindImportedAccount(
+        acc,
+        { accounts: store, exits: exitsStore, pools: poolsStore },
+        { isNew: item.action === 'created' },
+      )
+      acc = bind.account
+      autoBound = bind.autoBound
+      autoBindError = bind.autoBindError
+
+      const quota = await maybeFetchQuotaOnImport(acc, {
+        accounts: store,
+        exits: exitsStore,
+        pools: poolsStore,
+      })
+      acc = quota.account
+
+      accountsOut.push(
+        summarizeImportedAccount(
+          acc,
+          {
+            id: item.id,
+            action: item.action,
+            autoBound,
+            autoBindError,
+            quotaFetched: quota.quotaFetched,
+            quotaError: quota.quotaError,
+          },
+          exitsStore,
+        ),
+      )
+    }
+
+    await store.flush()
+
+    return c.json({
+      ok: true,
+      mode: normalized.mode,
+      imported: result.imported,
+      created: result.created,
+      updated: result.updated,
+      failed: result.failed,
+      skipped,
+      total: result.total,
+      defaultPoolId,
+      accounts: accountsOut,
+      warnings: normalized.warnings,
+    })
   })
 
   app.get('/accounts/export', (c) => {
