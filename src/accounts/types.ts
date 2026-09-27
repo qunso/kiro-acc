@@ -108,6 +108,12 @@ export interface AccountRecord {
    * Still accepted on import; mirrored for older admin UI clients.
    */
   deviceId?: string
+  /**
+   * Optional default reasoning effort for Kiro upstream when the client omits it.
+   * Valid: low | medium | high | xhigh | max. Missing / unset = omit field.
+   * Precedence: request > API-key defaultEffort > this > unset.
+   */
+  defaultEffort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max'
   stats?: AccountStats
   createdAt?: number
   updatedAt?: number

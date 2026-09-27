@@ -16,6 +16,13 @@ import {
   type KiroUsage,
   type KiroUserInputMessage,
 } from './translator.js'
+import {
+  applyEffortToKiroPayload,
+  extractEffortFromClaude,
+  extractThinkingFromClaude,
+  type EffortApplyOptions,
+  type EffortLevel,
+} from './effort.js'
 
 export interface ClaudeTextBlock {
   type: 'text'
@@ -71,6 +78,15 @@ export interface ClaudeMessagesRequest {
   tools?: ClaudeTool[]
   tool_choice?: { type?: string; name?: string } | string
   metadata?: { user_id?: string }
+  /** Anthropic / Bedrock-style output config (effort). */
+  output_config?: { effort?: string; [key: string]: unknown }
+  /** Extended / adaptive thinking passthrough. */
+  thinking?: {
+    type?: string
+    display?: string
+    budget_tokens?: number
+    [key: string]: unknown
+  }
 }
 
 export interface ClaudeResponse {
@@ -237,7 +253,11 @@ function convertClaudeTools(tools: ClaudeTool[] | undefined): KiroToolWrapper[] 
   })
 }
 
-export function claudeToKiro(request: ClaudeMessagesRequest, profileArn?: string): KiroPayload {
+export function claudeToKiro(
+  request: ClaudeMessagesRequest,
+  profileArn?: string,
+  effortOpts?: EffortApplyOptions,
+): KiroPayload {
   // Caller must pass an already-resolved model (resolveRequestModel / mapModelId).
   // Do not call mapModelId here — that would double-apply custom model-map chains.
   const modelId = (request.model || '').trim() || mapModelId('')
@@ -342,6 +362,19 @@ export function claudeToKiro(request: ClaudeMessagesRequest, profileArn?: string
     if (request.temperature !== undefined) payload.inferenceConfig.temperature = request.temperature
     if (request.top_p !== undefined) payload.inferenceConfig.topP = request.top_p
   }
+
+  const effort: EffortLevel | undefined =
+    effortOpts !== undefined ? effortOpts.effort : extractEffortFromClaude(request)
+  const thinking =
+    effortOpts !== undefined
+      ? effortOpts.thinking
+      : extractThinkingFromClaude(request)
+  applyEffortToKiroPayload(payload, {
+    effort,
+    thinking,
+    modelId: effortOpts?.modelId || modelId,
+  })
+
   return payload
 }
 

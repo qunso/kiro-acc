@@ -1,6 +1,7 @@
 import { randomBytes, randomUUID } from 'node:crypto'
 import path from 'node:path'
 import { JsonStore } from '../storage/jsonStore.js'
+import { parseEffort, type EffortLevel } from '../kiro/effort.js'
 
 
 export const ENV_API_KEY_ID = 'env'
@@ -10,6 +11,8 @@ export interface ResolvedApiKey {
   id: string
   label: string
   source: 'env' | 'managed'
+  /** Optional default reasoning effort for this key (managed keys only). */
+  defaultEffort?: EffortLevel
 }
 
 export interface ApiKeyRecord {
@@ -19,10 +22,27 @@ export interface ApiKeyRecord {
   key: string
   createdAt: number
   revokedAt?: number
+  /**
+   * Optional default reasoning effort when the client omits it.
+   * Valid: low | medium | high | xhigh | max. Missing = unset (omit upstream).
+   * Precedence: request > this > account defaultEffort > unset.
+   */
+  defaultEffort?: EffortLevel
 }
 
 export interface ApiKeysFile {
   keys: ApiKeyRecord[]
+}
+
+export type ApiKeyCreateInput = {
+  label?: string
+  defaultEffort?: EffortLevel | string | null
+}
+
+export type ApiKeyUpdateInput = {
+  label?: string
+  /** Pass null or '' to clear. */
+  defaultEffort?: EffortLevel | string | null
 }
 
 function maskKey(key: string): string {
@@ -33,6 +53,18 @@ function maskKey(key: string): string {
 
 export function generateApiKey(): string {
   return `kk_${randomBytes(24).toString('base64url')}`
+}
+
+function normalizeDefaultEffort(
+  raw: unknown,
+  opts?: { requiredValid?: boolean },
+): EffortLevel | undefined {
+  if (raw == null || raw === '') return undefined
+  const parsed = parseEffort(raw)
+  if (!parsed && opts?.requiredValid) {
+    throw new Error(`invalid defaultEffort (want low|medium|high|xhigh|max): ${String(raw)}`)
+  }
+  return parsed
 }
 
 export class ApiKeyStore {
@@ -69,13 +101,21 @@ export class ApiKeyStore {
     return this.list(false).map(({ key: _k, ...rest }) => rest)
   }
 
-  async create(label: string): Promise<ApiKeyRecord> {
+  get(id: string): ApiKeyRecord | undefined {
+    return this.keys.find((k) => k.id === id)
+  }
+
+  async create(labelOrInput: string | ApiKeyCreateInput = ''): Promise<ApiKeyRecord> {
+    const input: ApiKeyCreateInput =
+      typeof labelOrInput === 'string' ? { label: labelOrInput } : labelOrInput || {}
     const now = Date.now()
+    const defaultEffort = normalizeDefaultEffort(input.defaultEffort, { requiredValid: true })
     const record: ApiKeyRecord = {
       id: randomUUID(),
-      label: (label || '').trim() || `key-${now.toString(36)}`,
+      label: (input.label || '').trim() || `key-${now.toString(36)}`,
       key: generateApiKey(),
       createdAt: now,
+      ...(defaultEffort ? { defaultEffort } : {}),
     }
     this.keys.push(record)
     await this.persist()
@@ -93,9 +133,20 @@ export class ApiKeyStore {
   }
 
   async updateLabel(id: string, label: string): Promise<ApiKeyRecord | undefined> {
+    return this.update(id, { label })
+  }
+
+  async update(id: string, patch: ApiKeyUpdateInput): Promise<ApiKeyRecord | undefined> {
     const rec = this.keys.find((k) => k.id === id)
     if (!rec) return undefined
-    rec.label = label.trim() || rec.label
+    if (patch.label !== undefined) {
+      rec.label = patch.label.trim() || rec.label
+    }
+    if ('defaultEffort' in patch) {
+      const next = normalizeDefaultEffort(patch.defaultEffort, { requiredValid: true })
+      if (next) rec.defaultEffort = next
+      else delete rec.defaultEffort
+    }
     await this.persist()
     return rec
   }
@@ -118,7 +169,12 @@ export class ApiKeyStore {
     }
     const rec = this.keys.find((k) => !k.revokedAt && k.key === key)
     if (!rec) return null
-    return { id: rec.id, label: rec.label, source: 'managed' }
+    return {
+      id: rec.id,
+      label: rec.label,
+      source: 'managed',
+      ...(rec.defaultEffort ? { defaultEffort: rec.defaultEffort } : {}),
+    }
   }
 
   isValidKey(candidate: string): boolean {

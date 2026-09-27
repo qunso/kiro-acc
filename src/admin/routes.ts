@@ -31,6 +31,7 @@ import {
 } from '../kiro/availableModels.js'
 import { callKiroApi, KiroApiError } from '../kiro/client.js'
 import { mapModelId, toCodeWhispererModelId, openaiToKiro, PUBLIC_MODELS } from '../kiro/translator.js'
+import { parseEffort } from '../kiro/effort.js'
 import { adminAuth } from '../middleware/auth.js'
 import type { AppConfig } from '../config.js'
 import type { ExitsStore } from '../exits/store.js'
@@ -158,6 +159,10 @@ export function createAdminRoutes(
       }
       if ('deviceId' in body && (body.deviceId === null || body.deviceId === '')) {
         body.deviceId = ''
+      }
+      // null / '' clears defaultEffort (store normalizes).
+      if ('defaultEffort' in body && (body.defaultEffort === null || body.defaultEffort === '')) {
+        body.defaultEffort = ''
       }
       const updated = await store.update(c.req.param('id'), body as never)
       return c.json(withExit(updated))
@@ -1089,19 +1094,46 @@ export function createAdminRoutes(
 
   app.post('/api-keys', async (c) => {
     if (!apiKeys) return c.json({ error: 'api keys store not initialized' }, 500)
-    const body = (await c.req.json().catch(() => ({}))) as { label?: string }
-    const created = await apiKeys.create(body.label || '')
-    // Return full key once
-    return c.json({ key: created, warning: 'Copy the key now; it will be masked in subsequent listings.' }, 201)
+    const body = (await c.req.json().catch(() => ({}))) as {
+      label?: string
+      defaultEffort?: string | null
+    }
+    try {
+      const created = await apiKeys.create({
+        label: body.label || '',
+        defaultEffort: body.defaultEffort,
+      })
+      // Return full key once
+      return c.json({ key: created, warning: 'Copy the key now; it will be masked in subsequent listings.' }, 201)
+    } catch (err) {
+      return c.json({ error: err instanceof Error ? err.message : String(err) }, 400)
+    }
   })
 
   app.patch('/api-keys/:id', async (c) => {
     if (!apiKeys) return c.json({ error: 'api keys store not initialized' }, 500)
-    const body = (await c.req.json().catch(() => ({}))) as { label?: string }
-    if (body.label === undefined) return c.json({ error: 'label required' }, 400)
-    const updated = await apiKeys.updateLabel(c.req.param('id'), body.label)
-    if (!updated) return c.json({ error: 'Not found' }, 404)
-    return c.json({ ok: true, id: updated.id, label: updated.label })
+    const body = (await c.req.json().catch(() => ({}))) as {
+      label?: string
+      defaultEffort?: string | null
+    }
+    if (body.label === undefined && !('defaultEffort' in body)) {
+      return c.json({ error: 'label or defaultEffort required' }, 400)
+    }
+    try {
+      const updated = await apiKeys.update(c.req.param('id'), {
+        ...(body.label !== undefined ? { label: body.label } : {}),
+        ...('defaultEffort' in body ? { defaultEffort: body.defaultEffort } : {}),
+      })
+      if (!updated) return c.json({ error: 'Not found' }, 404)
+      return c.json({
+        ok: true,
+        id: updated.id,
+        label: updated.label,
+        defaultEffort: updated.defaultEffort ?? null,
+      })
+    } catch (err) {
+      return c.json({ error: err instanceof Error ? err.message : String(err) }, 400)
+    }
   })
 
   app.post('/api-keys/:id/revoke', async (c) => {
@@ -1924,6 +1956,7 @@ export function createAdminRoutes(
         messages: [{ role: 'user', content: message }],
       },
       profileArn,
+      { effort: parseEffort(account.defaultEffort), modelId: mappedModel },
     )
     const started = Date.now()
     try {
