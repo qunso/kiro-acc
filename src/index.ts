@@ -48,7 +48,7 @@ async function main() {
     console.log(`[kiro-acc] kiroIdeVersion=${v}`)
   })
   startKiroIdeVersionRefreshLoop()
-  startExitHealthProbeLoop(exits)
+  startExitHealthProbeLoop(exits, { accounts: store })
 
   const app = createServer(store, config, exits, pools, {
     apiKeys,

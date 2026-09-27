@@ -284,7 +284,8 @@ Kiro 上游友好 id（点分版本）与 dash 别名均可；`data/model-map.js
 | POST | `/admin/pools/:id/assign` | stats 策略分配（useCount→banCount→hash） |
 | POST | `/admin/pools/:id/disable` / `enable` | 停用 / 启用池 |
 | POST | `/admin/accounts/:id/rebind-exit` | ban 当前 exit 并换绑同池 |
-| POST | `/admin/exits/probe` | 可选 egress 探测（非主路径） |
+| GET | `/egress-echo` | 自建出口 IP echo（健康探测用，公开） |
+| POST | `/admin/exits/probe` | 出口健康探测（默认 liveness；万级请传 exitIds） |
 | POST | `/admin/exits/:id/disable` / `enable` | 禁用 / 启用 exit |
 
 ---
@@ -400,7 +401,13 @@ curl -s http://127.0.0.1:8787/admin/accounts/ACCOUNT_ID/rebind-exit \
 
 **封禁自动换绑**：上游返回 `TEMPORARILY_SUSPENDED` 时，若账号有 `outboundPoolId` + `outboundExitId`，会 `banCount++`（默认 cooldown 10min），再在同池选下一合格 exit。rebind 失败只打日志，不阻断 suspend 路径。
 
-**可选** `POST /admin/exits/probe`：egress IP 探测，**不是**分配主路径（catalog / gen 应自带 `#ip` / `#index`）。
+**出口健康探测（万级）**
+
+- 后台 **分片探测**：每个 tick 最多 `BATCH_SIZE`（默认 10）条，优先已绑定(hot) → 有用量(warm) → 冷门(cold)；冷门默认 ≥6h 才再探。约 1 万冷出口首次扫完大约 **十余小时**（`10 / 45s` ≈ 800/小时），属预期。
+- **默认探测目标不是 ipify**：默认 `liveness`——经 sticky SS 访问 `https://q.us-east-1.amazonaws.com/`（与业务同区域上游），验证隧道可达。第三方免费 IP echo 在万级会限流，禁止作为默认。
+- **自建 IP 校验**：部署公网可达后设置 `EXIT_HEALTH_PROBE_URL=https://<你的网关>/egress-echo`，经出口回源本机 `/egress-echo` 读取 egress IP，并可与 `expectedExitIp` 比对。
+- **新号分配**：跳过 `unhealthy`；对 `unknown`/过期出口在绑定时做有限次现场探测（`EXIT_ASSIGN_PROBE_*`）。已绑定账号不因探测失败自动换绑。
+- 手动 `POST /admin/exits/probe`：请传 `exitIds`（单次 ≤200）；全量扫库请依赖后台分片调度。
 
 账号字段新增：`outboundPoolId`。持久化：`data/pools.json`。
 

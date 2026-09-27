@@ -2,7 +2,8 @@ import type { AccountStore } from '../accounts/store.js'
 import type { AccountRecord } from '../accounts/types.js'
 import { isTokenExpiringSoon, refreshAccountToken } from '../kiro/auth.js'
 import type { ExitsStore } from '../exits/store.js'
-import { probeExitIp } from '../exits/probe.js'
+import { probeAndUpdate, probeExitIp } from '../exits/probe.js'
+import { loadExitHealthProbeConfig } from '../exits/healthScheduler.js'
 import { ensureAccountStickyOutbound } from '../exits/stickyOutbound.js'
 import { probeTlsFingerprint, type TlsProbeReport } from './tlsProbe.js'
 
@@ -252,11 +253,48 @@ async function checkExit(acc: AccountRecord, deps: DiagnoseDeps): Promise<Diagno
       }
     }
     const resolvedExitId = sticky.exitId || exitId
-    const exit = resolvedExitId ? deps.exits.getEntry(resolvedExitId) : undefined
-    const { ip } = await probeExitIp(
-      { ...(exit || { id: resolvedExitId || 'adhoc' }), outboundProxyUrl: proxyUrl },
-      { timeoutMs: 12_000 },
-    )
+    const probeCfg = loadExitHealthProbeConfig()
+    if (resolvedExitId) {
+      const result = await probeAndUpdate(deps.exits, resolvedExitId, {
+        timeoutMs: 12_000,
+        url: probeCfg.url || undefined,
+        mode: probeCfg.mode,
+        connectUrl: probeCfg.connectUrl,
+      })
+      if (!result.ok) {
+        return {
+          ok: false,
+          poolId: sticky.poolId || poolId,
+          exitId: resolvedExitId,
+          proxyUrl,
+          error: result.error,
+          message: 'sticky exit probe failed',
+        }
+      }
+      const ip = result.exitIp
+      return {
+        ok: true,
+        poolId: sticky.poolId || poolId,
+        exitId: resolvedExitId,
+        proxyUrl,
+        exitIp: ip,
+        message: ip
+          ? `sticky exit reachable · egress ${ip}`
+          : `sticky exit reachable · liveness ok (mode=${result.mode})`,
+      }
+    }
+    // Ad-hoc proxy without catalog exit: echo only if URL configured
+    if (!probeCfg.url) {
+      return {
+        ok: true,
+        poolId: sticky.poolId || poolId,
+        exitId: resolvedExitId,
+        proxyUrl,
+        message: 'sticky proxy present (no catalog exit; set EXIT_HEALTH_PROBE_URL for egress IP)',
+      }
+    }
+    const exit = { id: 'adhoc', outboundProxyUrl: proxyUrl }
+    const { ip } = await probeExitIp(exit, { timeoutMs: 12_000, url: probeCfg.url })
     return {
       ok: true,
       poolId: sticky.poolId || poolId,

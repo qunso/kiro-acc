@@ -573,7 +573,7 @@ th,td{padding:7px 10px}
   </section>
 
   <section id="tab-exits" hidden>
-    <p class="page-sub">池内具体出口 IP 与节点。定时/手动探测出口 IP；不健康出口不会分配给新号（已绑定账号不自动换绑）。探测与聊天走同一 sticky SS 出口。</p>
+    <p class="page-sub">万级出口：后台分片探测（每 tick 少量，hot 优先 / cold 稀疏）。默认 liveness（经 SS 探 Amazon Q），非 ipify；配置 EXIT_HEALTH_PROBE_URL=…/egress-echo 可校验出口 IP。不健康不分配给新号；已绑定不自动换绑。探测与聊天同一 sticky SS。</p>
     <div class="card stats" id="exitStats"></div>
     <div class="card">
       <div class="row" style="justify-content:space-between;margin-bottom:10px">
@@ -585,7 +585,7 @@ th,td{padding:7px 10px}
             <option value="id">按 id</option>
             <option value="health">按健康</option>
           </select>
-          <button type="button" id="probeAllExits" title="经各出口 sticky SS 探测出口 IP；不健康的不会分配给新号">探测全部出口 IP</button>
+          <button type="button" id="probeAllExits" title="仅建议小批量。万级请依赖后台分片；全量一次请求会被拒绝。默认 liveness，非 ipify。">探测选中/小批量</button>
         </div>
         <div class="muted" id="exitCount"></div>
       </div>
@@ -2479,10 +2479,14 @@ $('exitFilter').oninput = () => renderExits();
 $('exitSort').onchange = () => renderExits();
 if ($('probeAllExits')) $('probeAllExits').onclick = async () => {
   if (!state.exits.length) { toast('暂无出口', true); return; }
-  if (!confirm('探测全部 '+state.exits.length+' 个出口 IP？（并发受限，可能需要一段时间）')) return;
-  toast('正在探测全部出口…');
+  if (state.exits.length > 200) {
+    toast('出口数量 '+state.exits.length+'（万级请依赖后台分片调度；单次手动请选 ≤200 条）', true);
+    return;
+  }
+  if (!confirm('探测 '+state.exits.length+' 个出口？（默认 liveness，非 ipify）')) return;
+  toast('正在探测…');
   try {
-    const r = await api('/exits/probe', { method: 'POST', body: JSON.stringify({ concurrency: 3, staggerMs: 400 }) });
+    const r = await api('/exits/probe', { method: 'POST', body: JSON.stringify({ concurrency: 10, staggerMs: 50 }) });
     const results = r.results || [];
     const ok = results.filter(x => x.ok).length;
     const bad = results.length - ok;

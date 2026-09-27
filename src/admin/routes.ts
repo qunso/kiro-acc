@@ -34,6 +34,7 @@ import { pickExitId, type ExitAssignStrategy } from '../exits/assign.js'
 import type { PoolsStore, ProxyPool } from '../pools/store.js'
 import { assignAccountToPool, rebindAccountExitAfterBan, removeAccountHandlingExitUsage } from '../pools/rebind.js'
 import { probeMany } from '../exits/probe.js'
+import { loadExitHealthProbeConfig } from '../exits/healthScheduler.js'
 import { ensureAccountStickyOutbound } from '../exits/stickyOutbound.js'
 import { probeTlsFingerprint } from './tlsProbe.js'
 import type { ApiKeyStore } from '../apiKeys/store.js'
@@ -677,7 +678,11 @@ export function createAdminRoutes(
     }
   })
 
-  /** Manual egress-IP probe (same SS path as live chat). Persists healthStatus for assign gating. */
+  /**
+   * Manual egress probe (same sticky SS path as chat).
+   * Defaults to scheduler mode (liveness unless EXIT_HEALTH_PROBE_URL set).
+   * For 万-scale catalogs pass exitIds[] — do not omit (full list) casually.
+   */
   app.post('/exits/probe', async (c) => {
     if (!exitsStore) return c.json({ error: 'exits store not initialized' }, 500)
     try {
@@ -688,27 +693,48 @@ export function createAdminRoutes(
         staggerMs?: number
         timeoutMs?: number
         url?: string
+        mode?: 'auto' | 'echo' | 'liveness'
+        connectUrl?: string
       }
-      let ids = body.exitIds
+      let ids: string[] | undefined = body.exitIds
       if ((!ids || ids.length === 0) && body.poolId) {
         if (!poolsStore) return c.json({ error: 'pools store not initialized' }, 500)
         ids = poolsStore.getExitIds(body.poolId)
       }
-      if (!ids || ids.length === 0) ids = exitsStore.listIds()
-      const results = await probeMany(exitsStore, ids, {
-        concurrency: body.concurrency ?? 3,
-        staggerMs: body.staggerMs ?? 400,
-        timeoutMs: body.timeoutMs,
-        url: body.url,
+      const probingAll = !ids || ids.length === 0
+      const targetIds: string[] = probingAll ? exitsStore.listIds() : (ids ?? [])
+      const cfg = loadExitHealthProbeConfig()
+      const concurrency = body.concurrency ?? Math.min(cfg.concurrency, 20)
+      if (probingAll && targetIds.length > 200) {
+        return c.json(
+          {
+            error:
+              `refusing to probe all ${targetIds.length} exits in one request (万-scale). ` +
+              `Pass exitIds[] (≤200) or poolId, or rely on the background sharded scheduler.`,
+          },
+          400,
+        )
+      }
+      const results = await probeMany(exitsStore, targetIds, {
+        concurrency,
+        staggerMs: body.staggerMs ?? cfg.staggerMs,
+        timeoutMs: body.timeoutMs ?? cfg.timeoutMs,
+        url: body.url ?? (cfg.url || undefined),
+        mode: body.mode ?? cfg.mode,
+        connectUrl: body.connectUrl ?? cfg.connectUrl,
       })
       return c.json({
         results,
-        note: 'probe uses each exit sticky outbound; unhealthy exits are skipped on NEW account assign only',
+        note:
+          'probe uses sticky outbound; default mode is liveness (not ipify). ' +
+          'Set EXIT_HEALTH_PROBE_URL=https://<gateway>/egress-echo for IP verify. ' +
+          'Unhealthy exits are skipped on NEW account assign only.',
       })
     } catch (err) {
       return c.json({ error: err instanceof Error ? err.message : String(err) }, 400)
     }
   })
+
 
   app.post('/exits/:id/disable', async (c) => {
     if (!exitsStore) return c.json({ error: 'exits store not initialized' }, 500)
