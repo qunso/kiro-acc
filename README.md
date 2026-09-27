@@ -228,9 +228,14 @@ Kiro 上游友好 id（点分版本）与 dash 别名均可；`data/model-map.js
 | `auto` | Kiro 路由 | kiro.dev |
 | `gpt-4o` 等 | 兼容别名 → 默认 Sonnet 4.5 | 本仓库 |
 
-**CodeWhisperer 路径**：已知的旧版 SCREAMING_SNAKE（Sonnet/Haiku/Opus 4.5、Sonnet 4）仍会转换；其余 Kiro 友好 id（含 `claude-opus-5`）原样透传，**不会**再默默落到 Sonnet 4。Amazon Q 路径始终使用友好 id。
+**CodeWhisperer 路径**：已知的旧版 SCREAMING_SNAKE（Sonnet/Haiku/Opus 4.5、Sonnet 4）仍会转换；其余 Kiro 友好 id（含 `claude-opus-5` / 点分版本如 `claude-opus-5.5`）原样透传，**不会**再默默落到 Sonnet 4。Amazon Q 路径始终使用友好 id。`claude-opus-5-5` 等 dash 别名会先归一成点分形式。
 
-动态拉取 `ListAvailableModels` 列为后续改进，当前为静态目录。
+**按账号刷新模型**：Admin 账号详情 →「刷新模型」调用 `POST /admin/accounts/:id/refresh-models`。
+- Kiro：上游 `GET https://q.{region}.amazonaws.com/ListAvailableModels?origin=AI_EDITOR`，结果写入账号 `upstreamModels`（真实 id，不编造）。
+- openai_compat / anthropic_compat：仍拉 `baseUrl` 的 `/v1/models`。
+- 网关对外 `GET /v1/models` 仍以内置 `PUBLIC_MODELS` + `/admin/model-map` 为准；`upstreamModels` 用于池选择过滤（以及详情展示）。
+
+**自动刷新（后续）**：可在 Token 刷新成功、定时任务、或上游返回未知模型错误时后台刷新缓存；本次仅提供手工刷新。
 
 ---
 
@@ -245,6 +250,7 @@ Kiro 上游友好 id（点分版本）与 dash 别名均可；`data/model-map.js
 | POST | `/admin/accounts/:id/enable` | 启用 |
 | POST | `/admin/accounts/:id/disable` | 禁用 |
 | POST | `/admin/accounts/:id/refresh` | 强制刷新 Token |
+| POST | `/admin/accounts/:id/refresh-models` | 刷新上游模型缓存（Kiro ListAvailableModels / compat `/v1/models`） |
 | POST | `/admin/accounts/:id/unsuspend` | 解除封禁标记 |
 | POST | `/admin/accounts/import` | 导入账号 JSON / OIDC / 卡密文本（`{"text":"..."}`） |
 | GET | `/admin/accounts/export` | 导出 |

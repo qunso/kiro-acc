@@ -64,7 +64,7 @@ export interface AccountRecord {
    * model matches (prefix-aware). Takes precedence over upstreamModels cache.
    */
   supportedModels?: string[]
-  /** Cached upstream model ids from GET .../models (compat accounts). */
+  /** Cached upstream model ids: compat GET .../models, or Kiro ListAvailableModels. */
   upstreamModels?: string[]
   /** When upstreamModels was last refreshed (epoch ms). */
   upstreamModelsFetchedAt?: number
