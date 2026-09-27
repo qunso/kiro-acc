@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Pull main, build and push iquns/kacc:latest.
+set -euo pipefail
+cd "$(dirname "$0")"
+
+git pull
+docker build -t iquns/kacc:latest .
+docker push iquns/kacc:latest
