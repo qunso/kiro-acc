@@ -12,6 +12,7 @@ import { JsonStore } from '../storage/jsonStore.js'
 import { AccountPool } from '../pool/accountPool.js'
 import type { AppConfig } from '../config.js'
 import { generateMachineId, pickStoredMachineId } from './machineId.js'
+import { parseEffort, type EffortLevel } from '../kiro/effort.js'
 import {
   isCompatUpstream,
   normalizeModelIdList,
@@ -43,6 +44,17 @@ export interface ImportAccountsResult {
   skipped: number
   total: number
   items: ImportAccountItemResult[]
+}
+
+
+/** Persistable defaultEffort: valid level or undefined (unset / clear). */
+function normalizeDefaultEffort(raw: unknown, opts?: { requiredValid?: boolean }): EffortLevel | undefined {
+  if (raw == null || raw === '') return undefined
+  const parsed = parseEffort(raw)
+  if (!parsed && opts?.requiredValid) {
+    throw new Error(`invalid defaultEffort (want low|medium|high|xhigh|max): ${String(raw)}`)
+  }
+  return parsed
 }
 
 export class AccountStore {
@@ -218,6 +230,7 @@ export class AccountStore {
       enabled: input.enabled !== false,
       machineId,
       deviceId: input.deviceId || machineId,
+      defaultEffort: normalizeDefaultEffort(input.defaultEffort, { requiredValid: true }),
       createdAt: now,
       updatedAt: now,
     }
@@ -268,6 +281,10 @@ export class AccountStore {
     if (typeof patch.modelPrefix === 'string') {
       // Empty string clears the prefix (requirement).
       next.modelPrefix = patch.modelPrefix.trim() || undefined
+    }
+    if ('defaultEffort' in patch) {
+      // null / '' clears; invalid non-empty throws.
+      next.defaultEffort = normalizeDefaultEffort(patch.defaultEffort, { requiredValid: true })
     }
     if ('defaultHeaders' in patch) {
       const raw = patch.defaultHeaders

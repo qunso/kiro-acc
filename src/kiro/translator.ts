@@ -3,6 +3,12 @@
  * Algorithms adapted from chaogei/Kiro-account-manager translator (AGPL-3.0).
  */
 import { randomUUID } from 'node:crypto'
+import {
+  applyEffortToKiroPayload,
+  extractEffortFromOpenAI,
+  type EffortApplyOptions,
+  type EffortLevel,
+} from './effort.js'
 
 // ---- OpenAI types (subset) ----
 
@@ -30,6 +36,10 @@ export interface OpenAIChatRequest {
   }>
   tool_choice?: unknown
   conversation_id?: string
+  /** OpenAI-compatible reasoning effort (top-level alias). */
+  reasoning_effort?: string
+  /** OpenAI-compatible nested reasoning config. */
+  reasoning?: { effort?: string; [key: string]: unknown }
 }
 
 export interface OpenAIChatResponse {
@@ -144,6 +154,12 @@ export interface KiroPayload {
     temperature?: number
     topP?: number
   }
+  /**
+   * Native Kiro / Amazon Q control fields (sibling of conversationState).
+   * Effort: output_config.effort (Claude) or reasoning.effort (GPT-5.6).
+   * Thinking: optional Anthropic thinking object passthrough.
+   */
+  additionalModelRequestFields?: Record<string, unknown>
 }
 
 export interface KiroUsage {
@@ -373,7 +389,11 @@ function convertTools(
   }))
 }
 
-export function openaiToKiro(request: OpenAIChatRequest, profileArn?: string): KiroPayload {
+export function openaiToKiro(
+  request: OpenAIChatRequest,
+  profileArn?: string,
+  effortOpts?: EffortApplyOptions,
+): KiroPayload {
   // Caller must pass an already-resolved model (resolveRequestModel / mapModelId).
   // Do not call mapModelId here — that would double-apply custom model-map chains.
   const modelId = (request.model || '').trim() || mapModelId('')
@@ -519,6 +539,16 @@ export function openaiToKiro(request: OpenAIChatRequest, profileArn?: string): K
     if (request.temperature !== undefined) payload.inferenceConfig.temperature = request.temperature
     if (request.top_p !== undefined) payload.inferenceConfig.topP = request.top_p
   }
+
+  // When effortOpts is passed (handlers), use its resolved effort as-is (may be unset).
+  // When omitted (unit tests / direct callers), fall back to request fields.
+  const effort: EffortLevel | undefined =
+    effortOpts !== undefined ? effortOpts.effort : extractEffortFromOpenAI(request)
+  applyEffortToKiroPayload(payload, {
+    effort,
+    thinking: effortOpts?.thinking,
+    modelId: effortOpts?.modelId || modelId,
+  })
 
   return payload
 }

@@ -51,6 +51,9 @@ export function apiKeyAuth(config: AppConfig, keys?: ApiKeyStore | ApiKeyValidat
     if (resolved) {
       c.set('apiKeyId', resolved.id)
       c.set('apiKeyLabel', resolved.label)
+      if (resolved.defaultEffort) {
+        c.set('apiKeyDefaultEffort', resolved.defaultEffort)
+      }
     }
 
     await next()
@@ -72,11 +75,17 @@ export function adminAuth(config: AppConfig) {
 }
 
 /** Read API key attribution set by apiKeyAuth (safe if middleware skipped). */
-export function apiKeyFromContext(c: Context): { apiKeyId?: string; apiKeyLabel?: string } {
+export function apiKeyFromContext(c: Context): {
+  apiKeyId?: string
+  apiKeyLabel?: string
+  apiKeyDefaultEffort?: string
+} {
   const apiKeyId = c.get('apiKeyId') as string | undefined
   const apiKeyLabel = c.get('apiKeyLabel') as string | undefined
+  const apiKeyDefaultEffort = c.get('apiKeyDefaultEffort') as string | undefined
   return {
     ...(apiKeyId ? { apiKeyId } : {}),
     ...(apiKeyLabel ? { apiKeyLabel } : {}),
+    ...(apiKeyDefaultEffort ? { apiKeyDefaultEffort } : {}),
   }
 }

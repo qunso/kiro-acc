@@ -24,6 +24,12 @@ import { recordProxyUsage } from './logUsage.js'
 import { isClientAbort, SSE_RESPONSE_HEADERS } from './requestLog.js'
 import { apiKeyFromContext } from '../middleware/auth.js'
 import {
+  extractEffortFromClaude,
+  extractThinkingFromClaude,
+  parseEffort,
+  resolveEffort,
+} from '../kiro/effort.js'
+import {
   maybeSignalAllQuotaExhausted,
   signalAccountSuspended,
   signalRefreshFailed,
@@ -251,7 +257,18 @@ export function messagesHandler(
       await store.ensureMachineId(account.id)
       account = store.get(account.id) || account
       const profileArn = resolveProfileArn(account)
-      const payload = claudeToKiro(body, profileArn)
+      const keyMeta = apiKeyFromContext(c)
+      const effort = resolveEffort(
+        extractEffortFromClaude(body),
+        parseEffort(keyMeta.apiKeyDefaultEffort),
+        parseEffort(account.defaultEffort),
+      )
+      const thinking = extractThinkingFromClaude(body)
+      const payload = claudeToKiro(body, profileArn, {
+        effort,
+        thinking,
+        modelId: body.model,
+      })
       const started = Date.now()
 
       try {
