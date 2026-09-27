@@ -1499,7 +1499,15 @@ function renderAccountDrawer(a) {
       '</dl></div>';
     modelsHtml =
       '<div class="drawer-sec"><h3>账户可用模型</h3>'+
-        '<div class="drawer-empty">暂无按账号拉取的模型列表（ListAvailableModels 尚未接入）。聊天测试使用管理端内置目录，不代表该账号远程可用集。</div>'+
+        '<p class="muted" style="font-size:11px;margin:0 0 8px">从 Kiro <span class="mono">ListAvailableModels</span> 拉取该账号真实可用集（按档位/组织治理），写入 <span class="mono">upstreamModels</span> 缓存；非空时用于池选模型过滤。网关 <span class="mono">/v1/models</span> 仍用内置目录 + Admin Model Rewrite。</p>'+
+        '<div class="row" style="justify-content:space-between;align-items:center;margin-bottom:6px">'+
+          '<span class="muted" style="font-size:12px">上游模型缓存 (upstreamModels)</span>'+
+          '<button type="button" class="btn-sm primary" id="drawerRefreshModels">刷新模型</button>'+
+        '</div>'+
+        (cachedModels.length
+          ? '<div class="drawer-models">'+cachedModels.slice(0,120).map(function(m){return '<span class="chip mono">'+esc(m)+'</span>';}).join('')+(cachedModels.length>120?'<span class="muted">…+'+(cachedModels.length-120)+'</span>':'')+'</div>'
+          : '<div class="drawer-empty">尚未缓存。点「刷新模型」从 Kiro 拉取（需有效 accessToken）。</div>')+
+        (cachedAt ? '<div class="muted" style="font-size:11px;margin-top:6px">缓存于 '+esc(fmtTs(cachedAt))+' · 共 '+cachedModels.length+' 个</div>' : '')+
       '</div>';
   }
 
@@ -1592,11 +1600,12 @@ async function saveDrawerCompatFields() {
 async function refreshDrawerUpstreamModels() {
   if (!drawerAccountId) return;
   const btn = $('drawerRefreshModels');
-  if (btn) { btn.disabled = true; btn.textContent = '拉取中…'; }
+  if (btn) { btn.disabled = true; btn.textContent = '刷新中…'; }
   try {
     const r = await api('/accounts/' + encodeURIComponent(drawerAccountId) + '/refresh-models', { method: 'POST' });
     if (r.account) patchAccountInState(r.account);
-    toast('已拉取 ' + ((r.models && r.models.length) || 0) + ' 个上游模型');
+    const src = r.source === 'kiro' ? 'Kiro ListAvailableModels' : '上游 /models';
+    toast('已从 ' + src + ' 拉取 ' + ((r.models && r.models.length) || 0) + ' 个模型');
     const live = state.accounts.find(a => a.id === drawerAccountId);
     if (live) renderAccountDrawer(live);
     renderAccounts();
@@ -1604,7 +1613,14 @@ async function refreshDrawerUpstreamModels() {
     toast(e.message || String(e), true);
   } finally {
     const b = $('drawerRefreshModels');
-    if (b) { b.disabled = false; b.textContent = '拉取 /models'; }
+    if (b) {
+      b.disabled = false;
+      // Restore label from re-rendered drawer when possible; fallback by account type.
+      if (!b.textContent || b.textContent === '刷新中…') {
+        const live = state.accounts.find(a => a.id === drawerAccountId);
+        b.textContent = isCompatAccount(live) ? '拉取 /models' : '刷新模型';
+      }
+    }
   }
 }
 

@@ -25,6 +25,10 @@ import {
   resolveProfileArn,
 } from '../kiro/auth.js'
 import { getUsageLimits, quotaDetailFromCredit, UsageLimitsError } from '../kiro/usageLimits.js'
+import {
+  AvailableModelsError,
+  fetchKiroAvailableModels,
+} from '../kiro/availableModels.js'
 import { callKiroApi, KiroApiError } from '../kiro/client.js'
 import { mapModelId, toCodeWhispererModelId, openaiToKiro, PUBLIC_MODELS } from '../kiro/translator.js'
 import { adminAuth } from '../middleware/auth.js'
@@ -167,11 +171,35 @@ export function createAdminRoutes(
     const id = c.req.param('id')
     const acc = store.get(id)
     if (!acc) return c.json({ error: 'Not found' }, 404)
-    if (!isCompatUpstream(acc)) {
-      return c.json({ error: 'refresh-models is only for openai_compat / anthropic_compat accounts' }, 400)
-    }
     try {
-      const { models, url } = await fetchUpstreamModels(acc)
+      let models: string[]
+      let url: string
+      let source: 'compat' | 'kiro'
+      if (isCompatUpstream(acc)) {
+        const fetched = await fetchUpstreamModels(acc)
+        models = fetched.models
+        url = fetched.url
+        source = 'compat'
+      } else if (resolveUpstreamType(acc) === 'kiro') {
+        // Ensure access token is fresh enough for ListAvailableModels.
+        let working = acc
+        if (isTokenExpiringSoon(acc, config.tokenRefreshBeforeExpirySec) && acc.refreshToken) {
+          const result = await refreshAccountToken(acc)
+          if (result.success && result.accessToken) {
+            working = await store.update(id, {
+              accessToken: result.accessToken,
+              refreshToken: result.refreshToken,
+              expiresAt: result.expiresAt,
+            })
+          }
+        }
+        const fetched = await fetchKiroAvailableModels(working)
+        models = fetched.models
+        url = fetched.url
+        source = 'kiro'
+      } else {
+        return c.json({ error: 'refresh-models is only for kiro / openai_compat / anthropic_compat accounts' }, 400)
+      }
       const updated = await store.update(id, {
         upstreamModels: models,
         upstreamModelsFetchedAt: Date.now(),
@@ -180,14 +208,17 @@ export function createAdminRoutes(
         ok: true,
         models,
         url,
+        source,
         fetchedAt: updated.upstreamModelsFetchedAt,
         account: withExit(updated),
       })
     } catch (err) {
-      return c.json(
-        { error: err instanceof Error ? err.message : String(err) },
-        502,
-      )
+      const message = err instanceof Error ? err.message : String(err)
+      // Upstream/auth failures → 502 so admin UI can toast the message; 401/403 kept when known.
+      if (err instanceof AvailableModelsError && (err.statusCode === 401 || err.statusCode === 403)) {
+        return c.json({ error: message }, err.statusCode)
+      }
+      return c.json({ error: message }, 502)
     }
   })
 
