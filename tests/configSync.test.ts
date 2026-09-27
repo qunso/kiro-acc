@@ -124,6 +124,7 @@ describe('admin dashboard + config-sync + settings', () => {
     const dj = await dash.json()
     expect(dj.accounts.total).toBe(1)
     expect(dj.shortcuts.length).toBeGreaterThan(0)
+    expect(Array.isArray(dj.recentRequests)).toBe(true)
 
     const exp = await app.request('/admin/config-sync/export', { headers })
     expect(exp.status).toBe(200)

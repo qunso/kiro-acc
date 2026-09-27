@@ -286,6 +286,18 @@ header{background:var(--surface);border-bottom:1px solid var(--border)}
 .kpi-val{display:block;font-size:22px;font-weight:650;color:var(--text);line-height:1.2;margin:4px 0}
 .kpi-sub{font-size:12px;color:var(--text-3);line-height:1.4}
 .kpi-sub .bit{margin-right:8px}
+.live-bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between;margin-bottom:10px}
+.live-bar h2{margin:0}
+.live-bar .live-controls{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.live-bar .live-controls label{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--text-2);user-select:none}
+.live-dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--idle);margin-right:2px}
+.live-dot.on{background:var(--ok);box-shadow:0 0 0 3px rgba(52,211,153,.18)}
+.live-dot.paused{background:var(--warn)}
+@media(max-width:600px){
+  .live-bar{align-items:flex-start}
+  .live-bar .live-controls{width:100%}
+  .live-bar .live-controls button{flex:1;min-width:0}
+}
 .baseurl-grid{display:grid;grid-template-columns:1fr 1fr;gap:var(--gap);margin-bottom:12px}
 @media(max-width:800px){.baseurl-grid{grid-template-columns:1fr}}
 .baseurl-card{background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius);padding:12px}
@@ -419,7 +431,7 @@ th,td{padding:7px 10px}
 <main>
   
   <section id="tab-home">
-    <p class="page-sub">对外服务、上游容量、密钥用量与出口链路</p>
+    <p class="page-sub">对外服务、上游容量、密钥用量与出口链路 · 最近请求可自动增量刷新</p>
     <div id="homeEmptyCta" class="card empty-cta" hidden>
       <div>还没有上游账号，先去「上游账号」添加或「批量导入」</div>
       <div class="row" style="justify-content:center;gap:8px;margin-top:10px">
@@ -463,11 +475,19 @@ th,td{padding:7px 10px}
     <div id="dashAccountStats" hidden></div>
     <div id="dashPoolStats" hidden></div>
     <div class="card">
-      <h2>最近事件</h2>
+      <div class="live-bar">
+        <h2>最近请求</h2>
+        <div class="live-controls">
+          <span class="live-dot" id="homeLiveDot" title="自动刷新状态"></span>
+          <label><input type="checkbox" id="homeAutoRefresh" checked/> 自动刷新</label>
+          <span class="muted" id="homeLastUpdated" style="font-size:12px">尚未刷新</span>
+          <button type="button" class="btn-sm" id="homeRefreshBtn" title="立即刷新总览 KPI 与最近请求">刷新</button>
+        </div>
+      </div>
       <p class="muted" id="dashUsageTotals"></p>
       <div class="table-wrap sticky-col table-xl">
         <table>
-          <thead><tr><th>时间</th><th>账号</th><th>API Key</th><th>出口</th><th>模型</th><th>结果</th><th>tokens</th><th>耗时</th></tr></thead>
+          <thead><tr><th>时间</th><th>风格</th><th>模型</th><th>账号</th><th>API Key</th><th>出口</th><th>状态</th><th>耗时</th><th>错误</th></tr></thead>
           <tbody id="dashUsageBody"></tbody>
         </table>
       </div>
@@ -1985,7 +2005,8 @@ function showTab(name, opts) {
   if (name === 'subs') renderSubs();
   if (name === 'webhooks') renderWebhooks();
   if (name === 'diagnose') fillDiagAccounts();
-  if (name === 'home') renderDashboard();
+  if (name === 'home') { renderDashboard(); startHomeLiveRefresh(); }
+  else stopHomeLiveRefresh();
   if (name === 'settings') loadSettings();
   if (!opts.skipHash) {
     const next = hashForTab(name);
@@ -2333,28 +2354,180 @@ function renderDashboard() {
     }).join('');
   }
   if ($('dashUsageTotals')) {
-    $('dashUsageTotals').textContent = reqs
+    const logMeta = (d && d.requestLog) ? (d.requestLog.size+'/'+d.requestLog.capacity) : null;
+    const base = reqs
       ? ('累计请求 '+reqs+' · 成功 '+okN+' · 失败 '+failN+' · in '+(totals.inputTokens||0)+' / out '+(totals.outputTokens||0))
-      : '暂无用量事件';
+      : '暂无持久化用量';
+    $('dashUsageTotals').textContent = logMeta ? (base + ' · 内存日志 ' + logMeta) : base;
   }
-  const recent = (usage && usage.recent) || (d && d.usage && d.usage.recent) || [];
-  if ($('dashUsageBody')) {
-    $('dashUsageBody').innerHTML = recent.map(r =>
-      '<tr>'+
-        '<td class="muted">'+esc(new Date(r.timestamp).toLocaleString())+'</td>'+
-        fmtAccountCell(r.accountId, r.accountLabel)+
-        fmtApiKeyCell(r.apiKeyId, r.apiKeyLabel)+
-        fmtExitCell(r.exitId, r.exitIp)+
-        '<td class="mono">'+esc(r.model||'')+'</td>'+
-        '<td>'+(r.success?'<span class="badge ok">ok</span>':'<span class="badge bad">fail</span>')+'</td>'+
-        '<td class="mono">'+(r.inputTokens||0)+'+'+(r.outputTokens||0)+'</td>'+
-        '<td>'+esc(r.responseTimeMs)+'ms</td>'+
-      '</tr>'
-    ).join('') || '<tr><td colspan="8" class="muted">暂无事件</td></tr>';
+  // 最近请求表由 home live-refresh（request-log）维护，避免与 KPI render 互相覆盖
+}
+
+const HOME_POLL_MS = 5000;
+const HOME_REQ_LIMIT = 40;
+let homePollTimer = null;
+let homeRefreshInFlight = false;
+let homeNewestId = null;
+let homeNewestTs = 0;
+let homeEntries = []; // newest-first client cache
+
+function homeAutoEnabled() {
+  const el = $('homeAutoRefresh');
+  return !el || !!el.checked;
+}
+function setHomeLiveDot(mode) {
+  const dot = $('homeLiveDot');
+  if (!dot) return;
+  dot.classList.remove('on', 'paused');
+  if (mode === 'on') dot.classList.add('on');
+  else if (mode === 'paused') dot.classList.add('paused');
+}
+function updateHomeLastUpdated(ok) {
+  const el = $('homeLastUpdated');
+  if (!el) return;
+  const t = new Date().toLocaleTimeString();
+  el.textContent = ok ? ('更新于 ' + t) : ('刷新失败 · ' + t);
+}
+function renderHomeRequestRows(entries) {
+  const body = $('dashUsageBody');
+  if (!body) return;
+  body.innerHTML = (entries || []).map(e =>
+    '<tr data-rid="'+esc(e.id)+'">'+
+      '<td class="muted">'+esc(new Date(e.ts).toLocaleString())+'</td>'+
+      '<td>'+esc(e.apiStyle||'')+'</td>'+
+      '<td class="mono">'+esc(e.model||'')+'</td>'+
+      fmtAccountCell(e.accountId, e.accountLabel)+
+      fmtApiKeyCell(e.apiKeyId, e.apiKeyLabel)+
+      fmtExitCell(e.exitId, e.exitIp)+
+      '<td>'+(e.success?'<span class="badge ok">'+esc(e.status)+'</span>':'<span class="badge bad">'+esc(e.status)+'</span>')+'</td>'+
+      '<td>'+esc(e.latencyMs)+'ms</td>'+
+      '<td class="muted">'+esc(e.error||'')+'</td>'+
+    '</tr>'
+  ).join('') || '<tr><td colspan="9" class="muted">暂无请求 · 有流量后将自动出现</td></tr>';
+}
+function mergeHomeEntries(incoming, replace) {
+  if (replace) {
+    homeEntries = (incoming || []).slice(0, HOME_REQ_LIMIT);
+  } else if (incoming && incoming.length) {
+    const seen = new Set(homeEntries.map(e => e.id));
+    const fresh = [];
+    for (const e of incoming) {
+      if (e && e.id && !seen.has(e.id)) {
+        seen.add(e.id);
+        fresh.push(e);
+      }
+    }
+    if (!fresh.length) return false;
+    homeEntries = fresh.concat(homeEntries).slice(0, HOME_REQ_LIMIT);
+  } else {
+    return false;
   }
+  if (homeEntries.length) {
+    homeNewestId = homeEntries[0].id;
+    homeNewestTs = homeEntries[0].ts || 0;
+  } else {
+    homeNewestId = null;
+    homeNewestTs = 0;
+  }
+  renderHomeRequestRows(homeEntries);
+  return true;
+}
+async function loadHomeRequestLog(opts) {
+  opts = opts || {};
+  const incremental = !opts.full && !!homeNewestId;
+  let path = '/request-log?limit=' + HOME_REQ_LIMIT;
+  if (incremental) {
+    path += '&afterId=' + encodeURIComponent(homeNewestId);
+    if (homeNewestTs) path += '&since=' + encodeURIComponent(String(homeNewestTs - 1));
+  }
+  const r = await api(path);
+  if (incremental) {
+    const incoming = r.entries || [];
+    // afterId fell out of the ring (or log cleared) → full resync
+    if (!incoming.length && (r.size || 0) === 0 && homeEntries.length) {
+      mergeHomeEntries([], true);
+    } else if (!incoming.length && homeNewestId && (r.size || 0) > 0) {
+      // Possibly rotated past watermark: verify with a full fetch
+      const full = await api('/request-log?limit=' + HOME_REQ_LIMIT);
+      const fullEntries = full.entries || [];
+      const stillHas = fullEntries.some(e => e.id === homeNewestId);
+      if (!stillHas) mergeHomeEntries(fullEntries, true);
+      // else: genuinely no newer entries
+    } else {
+      mergeHomeEntries(incoming, false);
+    }
+  } else {
+    mergeHomeEntries(r.entries || [], true);
+  }
+  return r;
+}
+async function refreshHomeOverview(opts) {
+  opts = opts || {};
+  if (homeRefreshInFlight) return;
+  homeRefreshInFlight = true;
+  const btn = $('homeRefreshBtn');
+  if (btn && opts.manual) {
+    btn.disabled = true;
+    btn.textContent = '刷新中…';
+  }
+  let ok = true;
+  try {
+    // KPIs / health / shortcuts
+    await loadDashboard();
+    // Prefer dashboard.recentRequests on full refresh; otherwise incremental request-log
+    const d = state.dashboard;
+    if (opts.full || !homeNewestId) {
+      if (d && Array.isArray(d.recentRequests)) mergeHomeEntries(d.recentRequests, true);
+      else await loadHomeRequestLog({ full: true });
+    } else {
+      await loadHomeRequestLog({ full: false });
+    }
+  } catch (e) {
+    ok = false;
+    if (opts.manual || opts.toast) toast('总览刷新: ' + (e.message || e), true);
+  } finally {
+    homeRefreshInFlight = false;
+    updateHomeLastUpdated(ok);
+    if (btn && opts.manual) {
+      btn.disabled = false;
+      btn.textContent = '刷新';
+    }
+    syncHomeLiveDot();
+  }
+}
+function syncHomeLiveDot() {
+  const onHome = !$('tab-home') || !$('tab-home').hidden;
+  if (!onHome) { setHomeLiveDot('off'); return; }
+  if (!homeAutoEnabled()) { setHomeLiveDot('off'); return; }
+  if (document.visibilityState === 'hidden') { setHomeLiveDot('paused'); return; }
+  setHomeLiveDot(homePollTimer ? 'on' : 'off');
+}
+function stopHomeLiveRefresh() {
+  if (homePollTimer) {
+    clearInterval(homePollTimer);
+    homePollTimer = null;
+  }
+  syncHomeLiveDot();
+}
+function startHomeLiveRefresh() {
+  stopHomeLiveRefresh();
+  const onHome = !$('tab-home') || !$('tab-home').hidden;
+  if (!onHome) return;
+  // Always do one refresh when entering home
+  refreshHomeOverview({ full: !homeNewestId });
+  if (!homeAutoEnabled()) { syncHomeLiveDot(); return; }
+  if (document.visibilityState === 'hidden') { syncHomeLiveDot(); return; }
+  homePollTimer = setInterval(() => {
+    if ($('tab-home') && $('tab-home').hidden) return;
+    if (!homeAutoEnabled()) return;
+    if (document.visibilityState === 'hidden') return;
+    refreshHomeOverview({ full: false });
+  }, HOME_POLL_MS);
+  syncHomeLiveDot();
 }
 
 async function loadDashboard() {
+
   try {
     state.dashboard = await api('/dashboard');
     renderDashboard();
@@ -2439,10 +2612,35 @@ async function refresh() {
   await loadWebhooks();
   fillDiagAccounts();
   await loadDashboard();
+  // Keep overview recent-requests in sync after full data reload
+  if (typeof mergeHomeEntries === 'function') {
+    const d = state.dashboard;
+    if (d && Array.isArray(d.recentRequests)) {
+      mergeHomeEntries(d.recentRequests, true);
+      updateHomeLastUpdated(true);
+    }
+    const onHome = !$('tab-home') || !$('tab-home').hidden;
+    if (onHome) startHomeLiveRefresh();
+  }
 }
 
 $('saveToken').onclick = () => { localStorage.setItem(tokenKey, $('token').value.trim()); toast('Token 已保存'); refresh(); };
 $('reload').onclick = () => refresh();
+if ($('homeRefreshBtn')) $('homeRefreshBtn').onclick = () => refreshHomeOverview({ full: true, manual: true, toast: true });
+if ($('homeAutoRefresh')) $('homeAutoRefresh').onchange = () => {
+  if (homeAutoEnabled()) startHomeLiveRefresh();
+  else { stopHomeLiveRefresh(); syncHomeLiveDot(); }
+};
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') {
+    // pause timer while hidden; keep watermark
+    if (homePollTimer) { clearInterval(homePollTimer); homePollTimer = null; }
+    syncHomeLiveDot();
+  } else {
+    const onHome = !$('tab-home') || !$('tab-home').hidden;
+    if (onHome) startHomeLiveRefresh();
+  }
+});
 $('exitFilter').oninput = () => renderExits();
 $('exitSort').onchange = () => renderExits();
 $('accountFilter').oninput = () => renderAccounts();

@@ -1092,10 +1092,17 @@ export function createAdminRoutes(
     const apiStyle = c.req.query('apiStyle') || undefined
     const apiKey = c.req.query('apiKey') || undefined
     const limit = Number(c.req.query('limit') || 100)
+    const sinceRaw = c.req.query('since')
+    const since = sinceRaw != null && sinceRaw !== '' && Number.isFinite(Number(sinceRaw))
+      ? Number(sinceRaw)
+      : undefined
+    const afterId = c.req.query('afterId') || undefined
+    const entries = globalRequestLog.list({ q, path: pathQ, apiStyle, apiKey, limit, since, afterId })
     return c.json({
       size: globalRequestLog.size,
       capacity: globalRequestLog.capacity,
-      entries: globalRequestLog.list({ q, path: pathQ, apiStyle, apiKey, limit }),
+      incremental: since != null || !!afterId,
+      entries,
     })
   })
 
@@ -1395,6 +1402,8 @@ export function createAdminRoutes(
         recent,
       },
       requestLog: { size: globalRequestLog.size, capacity: globalRequestLog.capacity },
+      /** Live ring-buffer requests for overview (newest first). */
+      recentRequests: globalRequestLog.list({ limit: 40 }),
       health: {
         strategy: store.pool.getStrategy(),
         uptime: process.uptime(),
