@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { AccountStore } from '../src/accounts/store.js'
 import { loadConfig } from '../src/config.js'
 import { ExitsStore } from '../src/exits/store.js'
@@ -14,6 +14,9 @@ import {
 import { createServer } from '../src/server.js'
 
 describe('shouldPreserveExitUsageOnDelete', () => {
+  beforeEach(() => { process.env.EXIT_ASSIGN_PROBE_ENABLED = 'false' })
+  afterEach(() => { delete process.env.EXIT_ASSIGN_PROBE_ENABLED })
+
   it('preserves for suspended / blocked accounts', () => {
     expect(
       shouldPreserveExitUsageOnDelete({

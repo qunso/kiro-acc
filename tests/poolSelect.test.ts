@@ -53,3 +53,14 @@ describe('pickExitFromPool / rankExits', () => {
     expect(pickExitFromPool('acc', exits, { excludeIds: ['cur'] }).id).toBe('next')
   })
 })
+
+  it('excludes unhealthy exits from new assignment', () => {
+    const exits = [
+      exit({ id: 'bad', useCount: 0, healthStatus: 'unhealthy' }),
+      exit({ id: 'ok', useCount: 5, healthStatus: 'healthy' }),
+      exit({ id: 'unk', useCount: 3 }),
+    ]
+    const ranked = rankExits('acc', exits)
+    expect(ranked.map((e) => e.id).sort()).toEqual(['ok', 'unk'])
+    expect(pickExitFromPool('acc', exits).id).not.toBe('bad')
+  })

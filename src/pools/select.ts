@@ -22,6 +22,9 @@ export function isExitEligible(e: ExitEntry, now = Date.now(), exclude?: Set<str
   if (exclude?.has(e.id)) return false
   if (e.disabled) return false
   if (typeof e.cooldownUntil === 'number' && e.cooldownUntil > now) return false
+  // Skip exits that failed periodic/manual IP health probe — new assign only.
+  // unknown / healthy / unset remain eligible; already-bound accounts are untouched.
+  if (e.healthStatus === 'unhealthy') return false
   if (!hasOutbound(e)) return false
   return true
 }
@@ -30,11 +33,13 @@ export function isExitEligible(e: ExitEntry, now = Date.now(), exclude?: Set<str
 export function exitSortKey(
   accountId: string,
   e: ExitEntry,
-): [number, number, number] {
+): [number, number, number, number] {
+  // Prefer recently proven healthy over unknown; unhealthy already filtered out.
+  const healthRank = e.healthStatus === 'healthy' ? 0 : 1
   const useCount = e.useCount ?? 0
   const banCount = e.banCount ?? 0
   const sticky = hashAccountId(`${accountId}\0${e.id}`)
-  return [useCount, banCount, sticky]
+  return [healthRank, useCount, banCount, sticky]
 }
 
 export function rankExits(
@@ -48,7 +53,7 @@ export function rankExits(
   return [...eligible].sort((a, b) => {
     const ka = exitSortKey(accountId, a)
     const kb = exitSortKey(accountId, b)
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < ka.length; i++) {
       if (ka[i]! !== kb[i]!) return ka[i]! - kb[i]!
     }
     return a.id < b.id ? -1 : a.id > b.id ? 1 : 0
