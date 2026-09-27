@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { RequestLog } from '../src/proxy/requestLog.js'
+import { RequestLog, isClientAbort } from '../src/proxy/requestLog.js'
 
 describe('RequestLog', () => {
   it('keeps a capped ring buffer and filters', () => {
@@ -81,7 +81,6 @@ describe('RequestLog', () => {
     const byLabel = log.list({ q: 'alice@example.com' })
     expect(byLabel).toHaveLength(1)
   })
-})
 
   it('supports incremental since/afterId listing', () => {
     const log = new RequestLog(20)
@@ -111,3 +110,61 @@ describe('RequestLog', () => {
     expect(log.list({ afterId: 'missing', limit: 10 })).toEqual([])
   })
 
+  it('round-trips inputTokens / outputTokens including zero', () => {
+    const log = new RequestLog(10)
+    const withTok = log.push({
+      method: 'POST',
+      path: '/v1/chat/completions',
+      apiStyle: 'openai',
+      model: 'gpt-4o',
+      status: 200,
+      success: true,
+      latencyMs: 40,
+      inputTokens: 1200,
+      outputTokens: 80,
+    })
+    expect(withTok.inputTokens).toBe(1200)
+    expect(withTok.outputTokens).toBe(80)
+    const zero = log.push({
+      method: 'POST',
+      path: '/v1/messages',
+      apiStyle: 'anthropic',
+      model: 'claude-sonnet-4.5',
+      status: 499,
+      success: false,
+      latencyMs: 9000,
+      error: 'client aborted',
+      inputTokens: 0,
+      outputTokens: 0,
+    })
+    expect(zero.inputTokens).toBe(0)
+    expect(zero.outputTokens).toBe(0)
+    const missing = log.push({
+      method: 'POST',
+      path: '/v1/messages',
+      apiStyle: 'anthropic',
+      model: 'm',
+      status: 200,
+      success: true,
+      latencyMs: 1,
+    })
+    expect(missing.inputTokens).toBeUndefined()
+    expect(missing.outputTokens).toBeUndefined()
+    const listed = log.list({ limit: 10 })
+    expect(listed.find((e) => e.id === withTok.id)?.inputTokens).toBe(1200)
+    expect(listed.find((e) => e.id === zero.id)?.error).toBe('client aborted')
+  })
+})
+
+describe('isClientAbort', () => {
+  it('detects AbortError, Request aborted, and aborted signal', () => {
+    expect(isClientAbort(new Error('Request aborted'))).toBe(true)
+    const ae = new Error('The operation was aborted')
+    ae.name = 'AbortError'
+    expect(isClientAbort(ae)).toBe(true)
+    const ac = new AbortController()
+    ac.abort()
+    expect(isClientAbort(new Error('other'), ac.signal)).toBe(true)
+    expect(isClientAbort(new Error('upstream 502'))).toBe(false)
+  })
+})

@@ -84,6 +84,8 @@ describe('usage enrichment (account label + exit)', () => {
     expect(entries[0]?.accountLabel).toBe('Prod Alice')
     expect(entries[0]?.exitId).toBe('exit-7')
     expect(entries[0]?.exitIp).toBe('203.0.113.7')
+    expect(entries[0]?.inputTokens).toBe(11)
+    expect(entries[0]?.outputTokens).toBe(3)
   })
 
   it('leaves exit blank when account has no outboundExitId', async () => {
