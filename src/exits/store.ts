@@ -24,6 +24,17 @@ export interface ExitEntry {
   /** Last probed egress IP (optional; probe is not primary) */
   exitIpProbedAt?: number
   exitIpMismatch?: boolean
+  /**
+   * Periodic / manual IP probe health.
+   * - unknown: never checked (still eligible for new assign)
+   * - healthy: last probe succeeded (and matched expected IP when set)
+   * - unhealthy: last probe failed or IP mismatched — skipped for NEW assign only
+   */
+  healthStatus?: 'unknown' | 'healthy' | 'unhealthy'
+  /** Epoch ms of last health probe attempt (success or failure). */
+  lastCheckedAt?: number
+  /** Last probe error message (cleared on healthy probe). */
+  lastError?: string
   useCount?: number
   banCount?: number
   /** Consecutive probe/ban failures; reset on successful use/probe. */
@@ -105,6 +116,14 @@ function normalizeEntry(e: ExitEntry): ExitEntry {
     expectedExitIp,
     exitIpProbedAt: e.exitIpProbedAt != null ? Number(e.exitIpProbedAt) : undefined,
     exitIpMismatch: e.exitIpMismatch ? true : undefined,
+    healthStatus:
+      e.healthStatus === 'healthy' || e.healthStatus === 'unhealthy'
+        ? e.healthStatus
+        : e.healthStatus === 'unknown'
+          ? 'unknown'
+          : undefined,
+    lastCheckedAt: e.lastCheckedAt != null ? Number(e.lastCheckedAt) : undefined,
+    lastError: e.lastError?.trim() || undefined,
     useCount: e.useCount != null ? Number(e.useCount) : 0,
     banCount: e.banCount != null ? Number(e.banCount) : 0,
     consecutiveFailCount: e.consecutiveFailCount != null ? Number(e.consecutiveFailCount) : 0,
@@ -174,7 +193,11 @@ export class ExitsStore {
         | 'expectedExitIp'
         | 'exitIpProbedAt'
         | 'exitIpMismatch'
+        | 'healthStatus'
+        | 'lastCheckedAt'
+        | 'lastError'
         | 'outboundProxyUrl'
+        | 'consecutiveFailCount'
       >
     >,
   ): Promise<ExitEntry> {
@@ -196,6 +219,24 @@ export class ExitsStore {
     }
     if (patch.exitIpMismatch !== undefined) {
       e.exitIpMismatch = patch.exitIpMismatch ? true : undefined
+    }
+    if (patch.healthStatus !== undefined) {
+      e.healthStatus =
+        patch.healthStatus === 'healthy' ||
+        patch.healthStatus === 'unhealthy' ||
+        patch.healthStatus === 'unknown'
+          ? patch.healthStatus
+          : undefined
+    }
+    if (patch.lastCheckedAt !== undefined) {
+      e.lastCheckedAt =
+        patch.lastCheckedAt == null ? undefined : Number(patch.lastCheckedAt)
+    }
+    if (patch.lastError !== undefined) {
+      e.lastError = patch.lastError?.trim() || undefined
+    }
+    if (patch.consecutiveFailCount !== undefined) {
+      e.consecutiveFailCount = Math.max(0, Number(patch.consecutiveFailCount) || 0)
     }
     if (patch.outboundProxyUrl !== undefined) {
       e.outboundProxyUrl = patch.outboundProxyUrl?.trim() || undefined
@@ -255,6 +296,45 @@ export class ExitsStore {
   async resetExitFailures(id: string): Promise<ExitEntry> {
     const e = this.findMutable(id)
     e.consecutiveFailCount = 0
+    this.data.updatedAt = Date.now()
+    await this.file.write(this.data)
+    return { ...e }
+  }
+
+  /**
+   * Persist periodic/manual egress IP probe outcome.
+   * Healthy = reachable and (if expectedExitIp/exitIp set) IP matches.
+   */
+  async recordHealthProbe(
+    id: string,
+    result: {
+      ok: boolean
+      exitIp?: string
+      mismatch?: boolean
+      error?: string
+      probedAt?: number
+    },
+  ): Promise<ExitEntry> {
+    const e = this.findMutable(id)
+    const probedAt = result.probedAt ?? Date.now()
+    e.lastCheckedAt = probedAt
+    e.exitIpProbedAt = probedAt
+    if (result.ok && !result.mismatch) {
+      if (result.exitIp) e.exitIp = result.exitIp.trim()
+      e.exitIpMismatch = undefined
+      e.healthStatus = 'healthy'
+      e.lastError = undefined
+      e.consecutiveFailCount = 0
+    } else {
+      if (result.exitIp) e.exitIp = result.exitIp.trim()
+      e.exitIpMismatch = result.mismatch ? true : e.exitIpMismatch
+      e.healthStatus = 'unhealthy'
+      e.lastError = (
+        result.error ||
+        (result.mismatch ? `exit ip mismatch: got ${result.exitIp}` : 'probe failed')
+      ).slice(0, 500)
+      e.consecutiveFailCount = (e.consecutiveFailCount ?? 0) + 1
+    }
     this.data.updatedAt = Date.now()
     await this.file.write(this.data)
     return { ...e }

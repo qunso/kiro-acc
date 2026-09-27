@@ -34,6 +34,8 @@ import { pickExitId, type ExitAssignStrategy } from '../exits/assign.js'
 import type { PoolsStore, ProxyPool } from '../pools/store.js'
 import { assignAccountToPool, rebindAccountExitAfterBan, removeAccountHandlingExitUsage } from '../pools/rebind.js'
 import { probeMany } from '../exits/probe.js'
+import { loadExitHealthProbeConfig } from '../exits/healthScheduler.js'
+import { ensureAccountStickyOutbound } from '../exits/stickyOutbound.js'
 import { probeTlsFingerprint } from './tlsProbe.js'
 import type { ApiKeyStore } from '../apiKeys/store.js'
 import type { ModelMapStore } from '../proxy/modelMapStore.js'
@@ -676,7 +678,11 @@ export function createAdminRoutes(
     }
   })
 
-  /** Optional ops probe — not used by pool assign. */
+  /**
+   * Manual egress probe (same sticky SS path as chat).
+   * Defaults to scheduler mode (liveness unless EXIT_HEALTH_PROBE_URL set).
+   * For 万-scale catalogs pass exitIds[] — do not omit (full list) casually.
+   */
   app.post('/exits/probe', async (c) => {
     if (!exitsStore) return c.json({ error: 'exits store not initialized' }, 500)
     try {
@@ -684,25 +690,51 @@ export function createAdminRoutes(
         exitIds?: string[]
         poolId?: string
         concurrency?: number
+        staggerMs?: number
         timeoutMs?: number
         url?: string
+        mode?: 'auto' | 'echo' | 'liveness'
+        connectUrl?: string
       }
-      let ids = body.exitIds
+      let ids: string[] | undefined = body.exitIds
       if ((!ids || ids.length === 0) && body.poolId) {
         if (!poolsStore) return c.json({ error: 'pools store not initialized' }, 500)
         ids = poolsStore.getExitIds(body.poolId)
       }
-      if (!ids || ids.length === 0) ids = exitsStore.listIds()
-      const results = await probeMany(exitsStore, ids, {
-        concurrency: body.concurrency,
-        timeoutMs: body.timeoutMs,
-        url: body.url,
+      const probingAll = !ids || ids.length === 0
+      const targetIds: string[] = probingAll ? exitsStore.listIds() : (ids ?? [])
+      const cfg = loadExitHealthProbeConfig()
+      const concurrency = body.concurrency ?? Math.min(cfg.concurrency, 20)
+      if (probingAll && targetIds.length > 200) {
+        return c.json(
+          {
+            error:
+              `refusing to probe all ${targetIds.length} exits in one request (万-scale). ` +
+              `Pass exitIds[] (≤200) or poolId, or rely on the background sharded scheduler.`,
+          },
+          400,
+        )
+      }
+      const results = await probeMany(exitsStore, targetIds, {
+        concurrency,
+        staggerMs: body.staggerMs ?? cfg.staggerMs,
+        timeoutMs: body.timeoutMs ?? cfg.timeoutMs,
+        url: body.url ?? (cfg.url || undefined),
+        mode: body.mode ?? cfg.mode,
+        connectUrl: body.connectUrl ?? cfg.connectUrl,
       })
-      return c.json({ results, note: 'probe is optional; pools assign does not require it' })
+      return c.json({
+        results,
+        note:
+          'probe uses sticky outbound; default mode is liveness (not ipify). ' +
+          'Set EXIT_HEALTH_PROBE_URL=https://<gateway>/egress-echo for IP verify. ' +
+          'Unhealthy exits are skipped on NEW account assign only.',
+      })
     } catch (err) {
       return c.json({ error: err instanceof Error ? err.message : String(err) }, 400)
     }
   })
+
 
   app.post('/exits/:id/disable', async (c) => {
     if (!exitsStore) return c.json({ error: 'exits store not initialized' }, 500)
@@ -866,20 +898,25 @@ export function createAdminRoutes(
       let accountId: string | undefined
       let exitId = body.exitId?.trim() || undefined
       let poolId: string | undefined
+      let stickySource: string | undefined
 
       if (body.accountId) {
         const acc = store.get(body.accountId)
         if (!acc) return c.json({ error: 'account not found' }, 404)
-        accountId = acc.id
-        poolId = acc.outboundPoolId
-        exitId = acc.outboundExitId || exitId
-        proxyUrl = acc.outboundProxyUrl
-        if (!proxyUrl && exitId && exitsStore) {
-          proxyUrl = await exitsStore.ensureProxyUrl(exitId)
-        }
+        // Prefer bound exit ensureProxyUrl — same path as chat / exit IP probe.
+        const sticky = await ensureAccountStickyOutbound(acc, {
+          accounts: store,
+          exits: exitsStore,
+        })
+        accountId = sticky.account.id
+        poolId = sticky.poolId
+        exitId = sticky.exitId || exitId
+        proxyUrl = sticky.proxyUrl
+        stickySource = sticky.source
       } else if (exitId) {
         if (!exitsStore) return c.json({ error: 'exits store not initialized' }, 500)
         proxyUrl = await exitsStore.ensureProxyUrl(exitId)
+        stickySource = 'exit'
       }
 
       const report = await probeTlsFingerprint({
@@ -888,7 +925,13 @@ export function createAdminRoutes(
         url: body.url,
         timeoutMs: body.timeoutMs,
       })
-      return c.json({ accountId: accountId ?? null, poolId: poolId ?? null, exitId: exitId ?? null, ...report })
+      return c.json({
+        accountId: accountId ?? null,
+        poolId: poolId ?? null,
+        exitId: exitId ?? null,
+        stickySource: stickySource ?? null,
+        ...report,
+      })
     } catch (err) {
       return c.json({ error: err instanceof Error ? err.message : String(err) }, 400)
     }
@@ -1610,6 +1653,28 @@ export function createAdminRoutes(
 
     let account = store.get(accountId)
     if (!account) return c.json({ ok: false, error: 'account not found', accountId }, 404)
+
+    // Sync sticky exit URL so smoke-test uses the SAME outbound as live chat / exit probe.
+    try {
+      const sticky = await ensureAccountStickyOutbound(account, {
+        accounts: store,
+        exits: exitsStore,
+      })
+      account = sticky.account
+    } catch (err) {
+      return c.json(
+        {
+          ok: false,
+          accountId,
+          model,
+          error:
+            'sticky exit resolve failed: ' +
+            (err instanceof Error ? err.message : String(err)),
+          latencyMs: 0,
+        },
+        400,
+      )
+    }
 
     const refreshBefore =
       store.getPersistedConfig().tokenRefreshBeforeExpirySec ?? config.tokenRefreshBeforeExpirySec

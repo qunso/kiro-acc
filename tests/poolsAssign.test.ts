@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { AccountStore } from '../src/accounts/store.js'
 import { loadConfig } from '../src/config.js'
 import { ExitsStore, normalizePassExitIp, normalizePassIndex } from '../src/exits/store.js'
@@ -52,7 +52,13 @@ describe('normalize password forms', () => {
 describe('pools assign + ban rebind', () => {
   let dir: string
 
+  // Avoid real network liveness during unit assign
+  beforeEach(() => {
+    process.env.EXIT_ASSIGN_PROBE_ENABLED = 'false'
+  })
+
   afterEach(async () => {
+    delete process.env.EXIT_ASSIGN_PROBE_ENABLED
     if (dir) await fs.rm(dir, { recursive: true, force: true })
   })
 

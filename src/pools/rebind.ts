@@ -5,7 +5,7 @@ import {
   type ExitsStore,
 } from '../exits/store.js'
 import type { PoolsStore } from './store.js'
-import { pickExitFromPool } from './select.js'
+import { pickExitWithOptionalProbe } from '../exits/assignProbe.js'
 import { maybeSignalExitConsecutiveFailures } from '../webhooks/signals.js'
 
 export interface RebindResult {
@@ -62,7 +62,10 @@ export async function rebindAccountExitAfterBan(
 
     const members = deps.exits.listByIds(pool.exitIds)
     const exclude = previousExitId ? [previousExitId] : []
-    const chosen = pickExitFromPool(accountId, members, { excludeIds: exclude })
+    const picked = await pickExitWithOptionalProbe(accountId, members, deps.exits, {
+      excludeIds: exclude,
+    })
+    const chosen = picked.exit
     const outboundProxyUrl = await deps.exits.ensureProxyUrl(chosen.id)
     await deps.exits.bumpUse(chosen.id)
     await deps.accounts.update(accountId, {
@@ -99,7 +102,8 @@ export async function assignAccountToPool(
     if (!pool) return { ok: false, accountId: account.id, poolId, error: 'unknown pool' }
     if (pool.disabled) return { ok: false, accountId: account.id, poolId, error: 'pool disabled' }
     const members = deps.exits.listByIds(pool.exitIds)
-    const chosen = pickExitFromPool(account.id, members)
+    const picked = await pickExitWithOptionalProbe(account.id, members, deps.exits)
+    const chosen = picked.exit
     const outboundProxyUrl = await deps.exits.ensureProxyUrl(chosen.id)
     await deps.exits.bumpUse(chosen.id)
     await deps.accounts.update(account.id, {
