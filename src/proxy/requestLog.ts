@@ -19,6 +19,10 @@ export interface RequestLogEntry {
   success: boolean
   latencyMs: number
   error?: string
+  /** Prompt / input tokens when known (best-effort on abort). */
+  inputTokens?: number
+  /** Completion / output tokens when known (best-effort on abort). */
+  outputTokens?: number
 }
 
 const DEFAULT_CAP = 500
@@ -45,6 +49,8 @@ export class RequestLog {
       success: partial.success,
       latencyMs: partial.latencyMs,
       error: partial.error ? String(partial.error).slice(0, 400) : undefined,
+      inputTokens: partial.inputTokens,
+      outputTokens: partial.outputTokens,
     }
     this.entries.push(entry)
     if (this.entries.length > this.cap) {
@@ -137,3 +143,22 @@ export class RequestLog {
 
 /** Process-wide ring buffer used by proxy handlers + admin UI. */
 export const globalRequestLog = new RequestLog(500)
+
+
+/** Detect client disconnect / AbortSignal during streaming. */
+export function isClientAbort(err: unknown, signal?: AbortSignal | null): boolean {
+  if (signal?.aborted) return true
+  if (err instanceof Error && err.name === 'AbortError') return true
+  const msg = err instanceof Error ? err.message : String(err)
+  if (msg === 'Request aborted') return true
+  if (/\bAbortError\b/i.test(msg)) return true
+  return false
+}
+
+/** Shared SSE response headers — disable nginx/OpenResty proxy buffering. */
+export const SSE_RESPONSE_HEADERS: Record<string, string> = {
+  'Content-Type': 'text/event-stream; charset=utf-8',
+  'Cache-Control': 'no-cache',
+  Connection: 'keep-alive',
+  'X-Accel-Buffering': 'no',
+}

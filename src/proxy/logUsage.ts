@@ -63,6 +63,8 @@ export async function recordProxyUsage(
     success: enriched.success,
     latencyMs: enriched.responseTimeMs,
     error: enriched.error,
+    inputTokens: enriched.inputTokens,
+    outputTokens: enriched.outputTokens,
     ts: enriched.timestamp,
   })
 }

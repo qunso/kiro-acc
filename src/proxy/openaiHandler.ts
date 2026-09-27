@@ -27,6 +27,7 @@ import type { ExitsStore } from '../exits/store.js'
 import type { PoolsStore } from '../pools/store.js'
 import { rebindAccountExitAfterBan } from '../pools/rebind.js'
 import { recordProxyUsage } from './logUsage.js'
+import { isClientAbort, SSE_RESPONSE_HEADERS } from './requestLog.js'
 import { apiKeyFromContext } from '../middleware/auth.js'
 import {
   maybeSignalAllQuotaExhausted,
@@ -448,42 +449,63 @@ async function handleStream(
           responseTimeMs: responseTime,
         }, { path: '/v1/chat/completions', apiStyle: 'openai', status: 200 })
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err)
-        const status = err instanceof KiroApiError ? err.statusCode : 500
+        const aborted = isClientAbort(err, c.req.raw.signal)
+        const message = aborted
+          ? 'client aborted'
+          : err instanceof Error
+            ? err.message
+            : String(err)
+        const status = aborted ? 499 : err instanceof KiroApiError ? err.statusCode : 500
         const reason = err instanceof KiroApiError ? err.reason : undefined
-        if (reason === 'TEMPORARILY_SUSPENDED') {
+        if (!aborted && reason === 'TEMPORARILY_SUSPENDED') {
           const newly = store.pool.markSuspended(accountId, reason, message)
           if (newly) void signalAccountSuspended(accountId, reason, message)
           await maybeRebindAfterSuspend(store, accountId, deps)
         }
-        store.pool.recordError(accountId, classifyError(status, reason), status)
-        void maybeSignalAllQuotaExhausted(store)
-        send({
-          error: { message, type: 'upstream_error', code: reason || `http_${status}` },
-        })
-        controller.enqueue(encoder.encode('data: [DONE]\n\n'))
-        controller.close()
+        if (!aborted) {
+          store.pool.recordError(accountId, classifyError(status, reason), status)
+          void maybeSignalAllQuotaExhausted(store)
+          try {
+            send({
+              error: { message, type: 'upstream_error', code: reason || `http_${status}` },
+            })
+            controller.enqueue(encoder.encode('data: [DONE]\n\n'))
+            controller.close()
+          } catch {
+            /* client already gone */
+          }
+        } else {
+          try {
+            controller.close()
+          } catch {
+            /* already closed */
+          }
+        }
+        // Best-effort tokens already accumulated (usage callback + contentLen estimate).
+        const outTokens =
+          usage.outputTokens || (contentLen > 0 ? Math.max(1, Math.round(contentLen / 4)) : 0)
+        const inTokens = usage.inputTokens
         await recordProxyUsage(store, {
           ...apiKeyFromContext(c),
           timestamp: Date.now(),
           accountId,
           model: usage.modelId || body.model,
-          inputTokens: 0,
-          outputTokens: 0,
+          inputTokens: inTokens,
+          outputTokens: outTokens,
           success: false,
           error: message,
           responseTimeMs: Date.now() - started,
-        }, { path: '/v1/chat/completions', apiStyle: 'openai', status: status >= 400 && status < 600 ? status : 502 })
+        }, {
+          path: '/v1/chat/completions',
+          apiStyle: 'openai',
+          status: aborted ? 499 : status >= 400 && status < 600 ? status : 502,
+        })
       }
     },
   })
 
   return new Response(stream, {
-    headers: {
-      'Content-Type': 'text/event-stream; charset=utf-8',
-      'Cache-Control': 'no-cache',
-      Connection: 'keep-alive',
-    },
+    headers: { ...SSE_RESPONSE_HEADERS },
   })
 }
 
@@ -532,20 +554,31 @@ async function handleCompatOpenAiStream(
           responseTimeMs: responseTime,
         }, { path: '/v1/chat/completions', apiStyle: 'openai', status: 200 })
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err)
-        store.pool.recordError(accountId, ErrorType.FATAL, 502)
-        controller.error(err)
+        const aborted = isClientAbort(err, c.req.raw.signal)
+        const message = aborted ? 'client aborted' : err instanceof Error ? err.message : String(err)
+        const status = aborted ? 499 : 502
+        if (!aborted) {
+          store.pool.recordError(accountId, ErrorType.FATAL, 502)
+          controller.error(err)
+        } else {
+          try {
+            controller.close()
+          } catch {
+            /* already closed */
+          }
+        }
+        const scraped = usageFromOpenAiSseText(collected)
         await recordProxyUsage(store, {
           ...apiKeyFromContext(c),
           timestamp: Date.now(),
           accountId,
-          model: body.model || 'unknown',
-          inputTokens: 0,
-          outputTokens: 0,
+          model: scraped?.modelId || body.model || 'unknown',
+          inputTokens: scraped?.inputTokens ?? 0,
+          outputTokens: scraped?.outputTokens ?? 0,
           success: false,
           error: message,
           responseTimeMs: Date.now() - started,
-        }, { path: '/v1/chat/completions', apiStyle: 'openai', status: 502 })
+        }, { path: '/v1/chat/completions', apiStyle: 'openai', status })
       }
     },
   })
@@ -553,9 +586,8 @@ async function handleCompatOpenAiStream(
   return new Response(stream, {
     status: upstream.status,
     headers: {
+      ...SSE_RESPONSE_HEADERS,
       'Content-Type': contentType,
-      'Cache-Control': 'no-cache',
-      Connection: 'keep-alive',
     },
   })
 }
