@@ -1,3 +1,4 @@
+import { getConnInfo } from '@hono/node-server/conninfo'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { logger } from 'hono/logger'
@@ -61,6 +62,30 @@ export function createServer(
       uptime: process.uptime(),
     }),
   )
+
+  /**
+   * Public egress echo for exit health probes (self-owned; no third-party IP service).
+   * When requested THROUGH an SS exit, `ip` is that exit's public egress.
+   * Set EXIT_HEALTH_PROBE_URL=https://<your-public-gateway>/egress-echo
+   */
+  app.get('/egress-echo', (c) => {
+    const forwarded = c.req.header('x-forwarded-for')?.split(',')[0]?.trim()
+    const realIp = c.req.header('x-real-ip')?.trim()
+    const cf = c.req.header('cf-connecting-ip')?.trim()
+    let remote = ''
+    try {
+      remote = getConnInfo(c).remote.address || ''
+    } catch {
+      /* non-node adapter */
+    }
+    const ip = (cf || realIp || forwarded || remote || '').replace(/^::ffff:/, '')
+    return c.json({
+      ok: true,
+      ip: ip || null,
+      ts: Date.now(),
+      note: 'self-owned egress echo for exit health probes',
+    })
+  })
 
   const v1 = new Hono()
   v1.use('*', apiKeyAuth(config, apiKeys))

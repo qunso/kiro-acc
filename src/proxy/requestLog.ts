@@ -53,13 +53,35 @@ export class RequestLog {
     return entry
   }
 
-  list(opts: { q?: string; path?: string; apiStyle?: string; apiKey?: string; limit?: number } = {}): RequestLogEntry[] {
+  list(opts: {
+    q?: string
+    path?: string
+    apiStyle?: string
+    apiKey?: string
+    limit?: number
+    /** Only entries with ts strictly greater than this (ms). */
+    since?: number
+    /** Only entries newer than this id (by ring order). Newest-first list truncates before the id. */
+    afterId?: string
+  } = {}): RequestLogEntry[] {
     const q = (opts.q || '').trim().toLowerCase()
     const pathF = (opts.path || '').trim().toLowerCase()
     const style = (opts.apiStyle || '').trim().toLowerCase()
     const apiKeyF = (opts.apiKey || '').trim().toLowerCase()
     const limit = Math.min(Math.max(opts.limit ?? 100, 1), this.cap)
     let list = this.entries.slice().reverse()
+    if (opts.afterId) {
+      const idx = list.findIndex((e) => e.id === opts.afterId)
+      if (idx >= 0) list = list.slice(0, idx)
+      else {
+        // Unknown id (rotated out / cleared) → empty incremental; caller should full-refresh
+        list = []
+      }
+    }
+    if (opts.since != null && Number.isFinite(opts.since)) {
+      const since = Number(opts.since)
+      list = list.filter((e) => e.ts > since)
+    }
     if (pathF) list = list.filter((e) => e.path.toLowerCase().includes(pathF))
     if (style) list = list.filter((e) => e.apiStyle === style)
     if (apiKeyF) {

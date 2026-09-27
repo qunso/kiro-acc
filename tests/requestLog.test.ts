@@ -82,3 +82,32 @@ describe('RequestLog', () => {
     expect(byLabel).toHaveLength(1)
   })
 })
+
+  it('supports incremental since/afterId listing', () => {
+    const log = new RequestLog(20)
+    const ids: string[] = []
+    for (let i = 0; i < 5; i++) {
+      const e = log.push({
+        method: 'POST',
+        path: '/v1/messages',
+        apiStyle: 'anthropic',
+        model: 'm' + i,
+        status: 200,
+        success: true,
+        latencyMs: i,
+        ts: 1_000_000 + i * 10,
+      })
+      ids.push(e.id)
+    }
+    // newest-first: ids[4] is newest
+    const after = log.list({ afterId: ids[2], limit: 10 })
+    expect(after.map((e) => e.id)).toEqual([ids[4], ids[3]])
+    const since = log.list({ since: 1_000_000 + 20, limit: 10 })
+    expect(since.map((e) => e.model)).toEqual(['m4', 'm3'])
+    // afterId + since: only newer than id and ts
+    const both = log.list({ afterId: ids[3], since: 1_000_000 + 30, limit: 10 })
+    expect(both.map((e) => e.id)).toEqual([ids[4]])
+    // unknown afterId without since → empty incremental
+    expect(log.list({ afterId: 'missing', limit: 10 })).toEqual([])
+  })
+
