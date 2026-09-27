@@ -22,6 +22,9 @@ export function isExitEligible(e: ExitEntry, now = Date.now(), exclude?: Set<str
   if (exclude?.has(e.id)) return false
   if (e.disabled) return false
   if (typeof e.cooldownUntil === 'number' && e.cooldownUntil > now) return false
+  // Skip exits that failed periodic/manual IP health probe — new assign only.
+  // unknown / healthy / unset remain eligible; already-bound accounts are untouched.
+  if (e.healthStatus === 'unhealthy') return false
   if (!hasOutbound(e)) return false
   return true
 }

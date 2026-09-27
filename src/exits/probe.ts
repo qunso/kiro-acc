@@ -1,12 +1,13 @@
 /**
- * Optional egress IP probe — NOT part of the primary assign/bind path.
- * Catalog exits should carry exitIp / SS_PASS#IP (or #index) from generation.
- * Left available for ops debugging; pools/assign do not call this.
+ * Egress IP probe through each exit's sticky outbound (same SS path as chat).
+ * Used by ops manual probe + periodic health scheduler.
+ * Assignment skips exits marked unhealthy after failed probes.
  */
 import { fetch as undiciFetch } from 'undici'
 import type { ExitEntry } from './store.js'
 import type { ExitsStore } from './store.js'
 import { getOutboundDispatcher } from '../net/outboundDispatcher.js'
+import { maybeSignalExitConsecutiveFailures } from '../webhooks/signals.js'
 
 export interface ProbeResult {
   exitId: string
@@ -15,6 +16,8 @@ export interface ProbeResult {
   mismatch?: boolean
   error?: string
   probedAt: number
+  healthStatus?: 'healthy' | 'unhealthy'
+  consecutiveFailCount?: number
 }
 
 export async function probeExitIp(
@@ -49,43 +52,96 @@ export async function probeAndUpdate(
 ): Promise<ProbeResult> {
   const probedAt = Date.now()
   const exit = store.getEntry(exitId)
-  if (!exit) return { exitId, ok: false, error: 'unknown exit', probedAt }
+  if (!exit) return { exitId, ok: false, error: 'unknown exit', probedAt, healthStatus: 'unhealthy' }
   try {
     await store.ensureProxyUrl(exitId)
     const fresh = store.getEntry(exitId)!
     const { ip } = await probeExitIp(fresh, opts)
     const expected = fresh.expectedExitIp || fresh.exitIp
-    const mismatch = !!(expected && expected !== ip)
-    await store.updateExitStats(exitId, {
+    // Only treat as mismatch when catalog expected IP is set (not the last probed IP alone).
+    const expectedFixed = fresh.expectedExitIp
+    const mismatch = !!(expectedFixed && expectedFixed !== ip)
+    const updated = await store.recordHealthProbe(exitId, {
+      ok: true,
       exitIp: ip,
-      exitIpProbedAt: Date.now(),
-      exitIpMismatch: mismatch || undefined,
+      mismatch,
+      probedAt: Date.now(),
+      error: mismatch ? `exit ip mismatch: expected ${expectedFixed}, got ${ip}` : undefined,
     })
-    return { exitId, ok: true, exitIp: ip, mismatch, probedAt: Date.now() }
-  } catch (err) {
+    if (mismatch) void maybeSignalExitConsecutiveFailures(store, exitId)
     return {
       exitId,
-      ok: false,
-      error: err instanceof Error ? err.message : String(err),
-      probedAt,
+      ok: !mismatch,
+      exitIp: ip,
+      mismatch,
+      error: mismatch ? `exit ip mismatch: expected ${expected}, got ${ip}` : undefined,
+      probedAt: Date.now(),
+      healthStatus: updated.healthStatus === 'healthy' ? 'healthy' : 'unhealthy',
+      consecutiveFailCount: updated.consecutiveFailCount,
+    }
+  } catch (err) {
+    const error = err instanceof Error ? err.message : String(err)
+    try {
+      const updated = await store.recordHealthProbe(exitId, {
+        ok: false,
+        error,
+        probedAt,
+      })
+      void maybeSignalExitConsecutiveFailures(store, exitId)
+      return {
+        exitId,
+        ok: false,
+        error,
+        probedAt,
+        healthStatus: 'unhealthy',
+        consecutiveFailCount: updated.consecutiveFailCount,
+      }
+    } catch {
+      return { exitId, ok: false, error, probedAt, healthStatus: 'unhealthy' }
     }
   }
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+/**
+ * Probe many exits with bounded concurrency and optional stagger between starts
+ * (avoids stampeding when the catalog is large).
+ */
 export async function probeMany(
   store: ExitsStore,
   exitIds: readonly string[],
-  opts?: { concurrency?: number; timeoutMs?: number; url?: string },
+  opts?: {
+    concurrency?: number
+    timeoutMs?: number
+    url?: string
+    /** Delay between starting each probe (ms). Default 0. */
+    staggerMs?: number
+  },
 ): Promise<ProbeResult[]> {
-  const concurrency = Math.max(1, opts?.concurrency ?? 5)
-  const results: ProbeResult[] = []
-  let i = 0
+  const concurrency = Math.max(1, opts?.concurrency ?? 3)
+  const staggerMs = Math.max(0, opts?.staggerMs ?? 0)
+  const results: ProbeResult[] = new Array(exitIds.length)
+  let next = 0
+  const t0 = Date.now()
+
   async function worker() {
-    while (i < exitIds.length) {
-      const id = exitIds[i++]!
-      results.push(await probeAndUpdate(store, id, opts))
+    while (true) {
+      const i = next++
+      if (i >= exitIds.length) return
+      if (staggerMs > 0) {
+        const wait = t0 + i * staggerMs - Date.now()
+        if (wait > 0) await sleep(wait)
+      }
+      const id = exitIds[i]!
+      results[i] = await probeAndUpdate(store, id, opts)
     }
   }
-  await Promise.all(Array.from({ length: Math.min(concurrency, exitIds.length) }, () => worker()))
+
+  const n = Math.min(concurrency, exitIds.length)
+  if (n <= 0) return []
+  await Promise.all(Array.from({ length: n }, () => worker()))
   return results
 }

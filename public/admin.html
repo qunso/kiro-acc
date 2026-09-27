@@ -573,7 +573,7 @@ th,td{padding:7px 10px}
   </section>
 
   <section id="tab-exits" hidden>
-    <p class="page-sub">池内具体出口 IP 与节点，含连通性与延迟</p>
+    <p class="page-sub">池内具体出口 IP 与节点。定时/手动探测出口 IP；不健康出口不会分配给新号（已绑定账号不自动换绑）。探测与聊天走同一 sticky SS 出口。</p>
     <div class="card stats" id="exitStats"></div>
     <div class="card">
       <div class="row" style="justify-content:space-between;margin-bottom:10px">
@@ -583,14 +583,16 @@ th,td{padding:7px 10px}
             <option value="useAsc">少用优先</option>
             <option value="banAsc">少封优先</option>
             <option value="id">按 id</option>
+            <option value="health">按健康</option>
           </select>
+          <button type="button" id="probeAllExits" title="经各出口 sticky SS 探测出口 IP；不健康的不会分配给新号">探测全部出口 IP</button>
         </div>
         <div class="muted" id="exitCount"></div>
       </div>
       <div class="table-wrap sticky-col table-xl" style="max-height:70vh">
         <table>
           <thead>
-            <tr><th>ID</th><th>Server</th><th>Password</th><th>Exit IP</th><th>use</th><th>ban</th><th>状态</th><th>操作</th></tr>
+            <tr><th>ID</th><th>Server</th><th>Password</th><th>Exit IP</th><th>健康</th><th>上次检测</th><th>use</th><th>ban</th><th>状态</th><th>操作</th></tr>
           </thead>
           <tbody id="exitBody"></tbody>
         </table>
@@ -1019,6 +1021,19 @@ function statusBadge(e) {
   if (e.disabled) return '<span class="badge bad">disabled</span>';
   if (e.cooldownUntil && e.cooldownUntil > Date.now()) return '<span class="badge warn">cooldown</span>';
   return '<span class="badge ok">active</span>';
+}
+function healthBadge(e) {
+  const hs = e.healthStatus || 'unknown';
+  if (hs === 'healthy') return '<span class="badge ok">healthy</span>';
+  if (hs === 'unhealthy') {
+    const tip = e.lastError ? (' title="'+esc(e.lastError)+'"') : '';
+    return '<span class="badge bad"'+tip+'>unhealthy</span>';
+  }
+  return '<span class="badge">unknown</span>';
+}
+function fmtCheckedAt(ts) {
+  if (!ts) return '—';
+  try { return new Date(ts).toLocaleString(); } catch (_) { return String(ts); }
 }
 
 function upstreamBadge(a) {
@@ -1751,11 +1766,16 @@ function renderPools() {
   el.innerHTML = state.pools.map(p => {
     const ids = p.exitIds || [];
     const bound = state.accounts.filter(a => a.outboundPoolId === p.id).length;
+    const unhealthy = ids.filter(id => {
+      const e = exitById(id);
+      return e && e.healthStatus === 'unhealthy';
+    }).length;
     return '<div class="card">'+
       '<div class="row" style="justify-content:space-between">'+
       '<div><b>'+esc(p.id)+'</b> <span class="muted">'+esc(p.name||'')+'</span> '+
       (p.disabled?'<span class="badge bad">停用</span>':'<span class="badge ok">启用</span>')+
-      '<div class="muted">'+ids.length+' 个出口 · '+bound+' 个账号绑定</div></div>'+
+      (unhealthy?' <span class="badge bad">'+unhealthy+' 不健康</span>':'')+
+      '<div class="muted">'+ids.length+' 个出口 · '+bound+' 个账号绑定'+(unhealthy?' · 新号跳过不健康出口':'')+'</div></div>'+
       actionMenu([
         {label:'编辑成员', attrs:'data-editpool="'+esc(p.id)+'"'},
         {label:'分配全部账号', attrs:'data-assign="'+esc(p.id)+'"'},
@@ -1776,35 +1796,47 @@ function renderExits() {
   list.sort((a, b) => {
     if (sort === 'useAsc') return (a.useCount||0) - (b.useCount||0) || (a.banCount||0) - (b.banCount||0);
     if (sort === 'banAsc') return (a.banCount||0) - (b.banCount||0) || (a.useCount||0) - (b.useCount||0);
+    if (sort === 'health') {
+      const rank = (e) => e.healthStatus === 'unhealthy' ? 0 : e.healthStatus === 'healthy' ? 2 : 1;
+      return rank(a) - rank(b) || String(a.id).localeCompare(String(b.id));
+    }
     return String(a.id).localeCompare(String(b.id));
   });
   $('exitCount').textContent = list.length + ' / ' + state.exits.length;
   const active = state.exits.filter(e => !e.disabled).length;
   const uses = state.exits.reduce((s,e)=>s+(e.useCount||0),0);
   const bans = state.exits.reduce((s,e)=>s+(e.banCount||0),0);
+  const healthy = state.exits.filter(e => e.healthStatus === 'healthy').length;
+  const unhealthy = state.exits.filter(e => e.healthStatus === 'unhealthy').length;
   $('exitStats').innerHTML =
     '<div class="stat"><span class="muted">Exits</span><b>'+state.exits.length+'</b></div>'+
     '<div class="stat"><span class="muted">Active</span><b>'+active+'</b></div>'+
+    '<div class="stat"><span class="muted">Healthy</span><b>'+healthy+'</b></div>'+
+    '<div class="stat"><span class="muted">Unhealthy</span><b>'+unhealthy+'</b></div>'+
     '<div class="stat"><span class="muted">Total use</span><b>'+uses+'</b></div>'+
     '<div class="stat"><span class="muted">Total ban</span><b>'+bans+'</b></div>';
   $('exitBody').innerHTML = list.map(e => {
     const ip = e.exitIp || e.expectedExitIp || '';
     const pass = e.password || '';
+    const checked = e.lastCheckedAt || e.exitIpProbedAt;
     return '<tr>'+
       '<td class="mono">'+esc(e.id)+'</td>'+
       '<td class="mono">'+esc(e.server||'')+':'+esc(e.port||'')+'</td>'+
       '<td class="mono" title="'+esc(pass)+'">'+esc(maskPass(pass))+' <button data-copy="'+esc(pass)+'">复制</button></td>'+
       '<td class="mono">'+esc(ip)+'</td>'+
+      '<td>'+healthBadge(e)+(e.consecutiveFailCount?(' <span class="muted">×'+e.consecutiveFailCount+'</span>'):'')+'</td>'+
+      '<td class="muted" style="font-size:11px" title="'+esc(e.lastError||'')+'">'+esc(fmtCheckedAt(checked))+'</td>'+
       '<td>'+(e.useCount||0)+'</td>'+
       '<td>'+(e.banCount||0)+'</td>'+
       '<td>'+statusBadge(e)+'</td>'+
       '<td>'+actionMenu([
+          {label:'探测 IP', attrs:'data-probeexit="'+esc(e.id)+'"'},
           e.disabled
             ? {label:'启用', attrs:'data-en="'+esc(e.id)+'"'}
             : {label:'禁用', attrs:'data-dis="'+esc(e.id)+'"', danger:true},
         ])+'</td>'+
       '</tr>';
-  }).join('') || '<tr><td colspan="8" class="muted">暂无 exits，请先在「导入」中导入</td></tr>';
+  }).join('') || '<tr><td colspan="10" class="muted">暂无 exits，请先在「导入」中导入</td></tr>';
   bindMenuPositioning(document);
 }
 
@@ -2445,6 +2477,19 @@ $('saveToken').onclick = () => { localStorage.setItem(tokenKey, $('token').value
 $('reload').onclick = () => refresh();
 $('exitFilter').oninput = () => renderExits();
 $('exitSort').onchange = () => renderExits();
+if ($('probeAllExits')) $('probeAllExits').onclick = async () => {
+  if (!state.exits.length) { toast('暂无出口', true); return; }
+  if (!confirm('探测全部 '+state.exits.length+' 个出口 IP？（并发受限，可能需要一段时间）')) return;
+  toast('正在探测全部出口…');
+  try {
+    const r = await api('/exits/probe', { method: 'POST', body: JSON.stringify({ concurrency: 3, staggerMs: 400 }) });
+    const results = r.results || [];
+    const ok = results.filter(x => x.ok).length;
+    const bad = results.length - ok;
+    toast('探测完成 · healthy='+ok+' unhealthy='+bad, bad > 0);
+    refresh();
+  } catch (e) { toast(e.message || String(e), true); }
+};
 $('accountFilter').oninput = () => renderAccounts();
 $('chatSend').onclick = () => runChatTest();
 $('openChatTest') && ($('openChatTest').onclick = () => openChatModal());
@@ -2557,6 +2602,13 @@ document.body.addEventListener('click', async (ev) => {
     if (t.dataset.copy != null) { await navigator.clipboard.writeText(t.dataset.copy); toast('已复制 password'); }
     else if (t.dataset.dis) { await api('/exits/' + encodeURIComponent(t.dataset.dis) + '/disable', { method: 'POST' }); toast('已禁用'); refresh(); }
     else if (t.dataset.en) { await api('/exits/' + encodeURIComponent(t.dataset.en) + '/enable', { method: 'POST' }); toast('已启用'); refresh(); }
+    else if (t.dataset.probeexit) {
+      toast('探测中…');
+      const r = await api('/exits/probe', { method: 'POST', body: JSON.stringify({ exitIds: [t.dataset.probeexit], concurrency: 1 }) });
+      const one = (r.results && r.results[0]) || {};
+      toast(one.ok ? ('出口 IP OK · '+(one.exitIp||'')) : ('探测失败: '+(one.error||'unknown')), !one.ok);
+      refresh();
+    }
     else if (t.dataset.assign) {
       const r = await api('/pools/' + encodeURIComponent(t.dataset.assign) + '/assign', { method: 'POST', body: '{}' });
       toast('已分配 ' + ((r.assigned && r.assigned.length) || 0) + ' 个账号'); refresh();

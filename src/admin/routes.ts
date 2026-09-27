@@ -34,6 +34,7 @@ import { pickExitId, type ExitAssignStrategy } from '../exits/assign.js'
 import type { PoolsStore, ProxyPool } from '../pools/store.js'
 import { assignAccountToPool, rebindAccountExitAfterBan, removeAccountHandlingExitUsage } from '../pools/rebind.js'
 import { probeMany } from '../exits/probe.js'
+import { ensureAccountStickyOutbound } from '../exits/stickyOutbound.js'
 import { probeTlsFingerprint } from './tlsProbe.js'
 import type { ApiKeyStore } from '../apiKeys/store.js'
 import type { ModelMapStore } from '../proxy/modelMapStore.js'
@@ -676,7 +677,7 @@ export function createAdminRoutes(
     }
   })
 
-  /** Optional ops probe — not used by pool assign. */
+  /** Manual egress-IP probe (same SS path as live chat). Persists healthStatus for assign gating. */
   app.post('/exits/probe', async (c) => {
     if (!exitsStore) return c.json({ error: 'exits store not initialized' }, 500)
     try {
@@ -684,6 +685,7 @@ export function createAdminRoutes(
         exitIds?: string[]
         poolId?: string
         concurrency?: number
+        staggerMs?: number
         timeoutMs?: number
         url?: string
       }
@@ -694,11 +696,15 @@ export function createAdminRoutes(
       }
       if (!ids || ids.length === 0) ids = exitsStore.listIds()
       const results = await probeMany(exitsStore, ids, {
-        concurrency: body.concurrency,
+        concurrency: body.concurrency ?? 3,
+        staggerMs: body.staggerMs ?? 400,
         timeoutMs: body.timeoutMs,
         url: body.url,
       })
-      return c.json({ results, note: 'probe is optional; pools assign does not require it' })
+      return c.json({
+        results,
+        note: 'probe uses each exit sticky outbound; unhealthy exits are skipped on NEW account assign only',
+      })
     } catch (err) {
       return c.json({ error: err instanceof Error ? err.message : String(err) }, 400)
     }
@@ -866,20 +872,25 @@ export function createAdminRoutes(
       let accountId: string | undefined
       let exitId = body.exitId?.trim() || undefined
       let poolId: string | undefined
+      let stickySource: string | undefined
 
       if (body.accountId) {
         const acc = store.get(body.accountId)
         if (!acc) return c.json({ error: 'account not found' }, 404)
-        accountId = acc.id
-        poolId = acc.outboundPoolId
-        exitId = acc.outboundExitId || exitId
-        proxyUrl = acc.outboundProxyUrl
-        if (!proxyUrl && exitId && exitsStore) {
-          proxyUrl = await exitsStore.ensureProxyUrl(exitId)
-        }
+        // Prefer bound exit ensureProxyUrl — same path as chat / exit IP probe.
+        const sticky = await ensureAccountStickyOutbound(acc, {
+          accounts: store,
+          exits: exitsStore,
+        })
+        accountId = sticky.account.id
+        poolId = sticky.poolId
+        exitId = sticky.exitId || exitId
+        proxyUrl = sticky.proxyUrl
+        stickySource = sticky.source
       } else if (exitId) {
         if (!exitsStore) return c.json({ error: 'exits store not initialized' }, 500)
         proxyUrl = await exitsStore.ensureProxyUrl(exitId)
+        stickySource = 'exit'
       }
 
       const report = await probeTlsFingerprint({
@@ -888,7 +899,13 @@ export function createAdminRoutes(
         url: body.url,
         timeoutMs: body.timeoutMs,
       })
-      return c.json({ accountId: accountId ?? null, poolId: poolId ?? null, exitId: exitId ?? null, ...report })
+      return c.json({
+        accountId: accountId ?? null,
+        poolId: poolId ?? null,
+        exitId: exitId ?? null,
+        stickySource: stickySource ?? null,
+        ...report,
+      })
     } catch (err) {
       return c.json({ error: err instanceof Error ? err.message : String(err) }, 400)
     }
@@ -1601,6 +1618,28 @@ export function createAdminRoutes(
 
     let account = store.get(accountId)
     if (!account) return c.json({ ok: false, error: 'account not found', accountId }, 404)
+
+    // Sync sticky exit URL so smoke-test uses the SAME outbound as live chat / exit probe.
+    try {
+      const sticky = await ensureAccountStickyOutbound(account, {
+        accounts: store,
+        exits: exitsStore,
+      })
+      account = sticky.account
+    } catch (err) {
+      return c.json(
+        {
+          ok: false,
+          accountId,
+          model,
+          error:
+            'sticky exit resolve failed: ' +
+            (err instanceof Error ? err.message : String(err)),
+          latencyMs: 0,
+        },
+        400,
+      )
+    }
 
     const refreshBefore =
       store.getPersistedConfig().tokenRefreshBeforeExpirySec ?? config.tokenRefreshBeforeExpirySec

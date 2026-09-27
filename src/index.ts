@@ -16,6 +16,7 @@ import {
   refreshKiroIdeVersion,
   startKiroIdeVersionRefreshLoop,
 } from './kiro/ideVersion.js'
+import { startExitHealthProbeLoop } from './exits/healthScheduler.js'
 
 async function main() {
   const config = loadConfig()
@@ -47,6 +48,7 @@ async function main() {
     console.log(`[kiro-acc] kiroIdeVersion=${v}`)
   })
   startKiroIdeVersionRefreshLoop()
+  startExitHealthProbeLoop(exits)
 
   const app = createServer(store, config, exits, pools, {
     apiKeys,

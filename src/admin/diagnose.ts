@@ -3,6 +3,7 @@ import type { AccountRecord } from '../accounts/types.js'
 import { isTokenExpiringSoon, refreshAccountToken } from '../kiro/auth.js'
 import type { ExitsStore } from '../exits/store.js'
 import { probeExitIp } from '../exits/probe.js'
+import { ensureAccountStickyOutbound } from '../exits/stickyOutbound.js'
 import { probeTlsFingerprint, type TlsProbeReport } from './tlsProbe.js'
 
 export interface DiagnoseTokenCheck {
@@ -88,12 +89,12 @@ export async function diagnoseAccount(
   let tlsError: string | undefined
   if (deps.doTls !== false) {
     try {
-      let proxyUrl = acc.outboundProxyUrl
-      if (!proxyUrl && acc.outboundExitId && deps.exits) {
-        proxyUrl = await deps.exits.ensureProxyUrl(acc.outboundExitId)
-      }
+      const sticky = await ensureAccountStickyOutbound(acc, {
+        accounts: deps.accounts,
+        exits: deps.exits,
+      })
       tls = await probeTlsFingerprint({
-        proxyUrl,
+        proxyUrl: sticky.proxyUrl,
         compareDirect: deps.compareDirect !== false,
       })
     } catch (err) {
@@ -236,8 +237,11 @@ async function checkExit(acc: AccountRecord, deps: DiagnoseDeps): Promise<Diagno
     }
   }
   try {
-    let proxyUrl = acc.outboundProxyUrl
-    if (exitId) proxyUrl = await deps.exits.ensureProxyUrl(exitId)
+    const sticky = await ensureAccountStickyOutbound(acc, {
+      accounts: deps.accounts,
+      exits: deps.exits,
+    })
+    const proxyUrl = sticky.proxyUrl
     if (!proxyUrl) {
       return {
         ok: false,
@@ -247,15 +251,16 @@ async function checkExit(acc: AccountRecord, deps: DiagnoseDeps): Promise<Diagno
         error: 'missing proxy url',
       }
     }
-    const exit = exitId ? deps.exits.getEntry(exitId) : undefined
+    const resolvedExitId = sticky.exitId || exitId
+    const exit = resolvedExitId ? deps.exits.getEntry(resolvedExitId) : undefined
     const { ip } = await probeExitIp(
-      { ...(exit || { id: exitId || 'adhoc' }), outboundProxyUrl: proxyUrl },
+      { ...(exit || { id: resolvedExitId || 'adhoc' }), outboundProxyUrl: proxyUrl },
       { timeoutMs: 12_000 },
     )
     return {
       ok: true,
-      poolId,
-      exitId,
+      poolId: sticky.poolId || poolId,
+      exitId: resolvedExitId,
       proxyUrl,
       exitIp: ip,
       message: `sticky exit reachable · egress ${ip}`,
