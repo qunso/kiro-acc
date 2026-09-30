@@ -99,6 +99,9 @@ details.menu[open]>summary{border-color:var(--acc);color:var(--acc)}
 .menu-panel button:hover,.menu-panel button:focus{background:#1a2332;border-color:#243044}
 .menu-panel button.danger{color:#ffb4b4}
 .menu-panel button.danger:hover{background:#3a1d1d;border-color:#5c2a2a}
+.menu-panel .menu-sep{height:1px;margin:4px 2px;background:var(--line);border:0}
+.menu-panel .menu-batch-pool{display:flex;flex-direction:column;gap:6px;padding:6px 4px}
+.menu-panel .menu-batch-pool select{width:100%;min-height:36px}
 pre.docs{background:#0d1218;border:1px solid var(--line);border-radius:10px;padding:12px;overflow:auto;font-size:12px;line-height:1.5}
 .tag-edit{width:110px;padding:4px 6px;font-size:12px}
 .batch-bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:10px}
@@ -562,13 +565,22 @@ th,td{padding:7px 10px}
       </div>
       <div class="batch-bar">
         <span class="muted" id="selectedCount">已选 0</span>
-        <button data-batch="refresh">批量刷新 Token</button>
-        <button data-batch="enable">批量启用</button>
-        <button data-batch="disable">批量禁用</button>
-        <button data-batch="unsuspend">批量解封</button>
-        <select id="batchPool"><option value="">选择池…</option></select>
-        <button data-batch="bind-pool">批量绑池</button>
-        <button class="danger" data-batch="delete">批量删除</button>
+        <details class="menu" id="batchOpsMenu">
+          <summary>批量操作 ▾</summary>
+          <div class="menu-panel">
+            <button type="button" data-batch="refresh">批量刷新 Token</button>
+            <button type="button" data-batch="enable">批量启用</button>
+            <button type="button" data-batch="disable">批量禁用</button>
+            <button type="button" data-batch="unsuspend">批量解封</button>
+            <div class="menu-sep" role="separator"></div>
+            <div class="menu-batch-pool">
+              <select id="batchPool"><option value="">选择池…</option></select>
+              <button type="button" data-batch="bind-pool">批量绑池</button>
+            </div>
+            <div class="menu-sep" role="separator"></div>
+            <button type="button" class="danger" data-batch="delete">批量删除</button>
+          </div>
+        </details>
       </div>
       <div class="account-grid" id="accountBody"></div>
     </div>
@@ -2849,8 +2861,13 @@ async function runBatch(action) {
   } catch (e) { toast(e.message, true); }
 }
 document.querySelectorAll('[data-batch]').forEach(btn => {
-  btn.addEventListener('click', () => runBatch(btn.getAttribute('data-batch')));
+  btn.addEventListener('click', () => {
+    const menu = btn.closest('details.menu');
+    if (menu) menu.removeAttribute('open');
+    runBatch(btn.getAttribute('data-batch'));
+  });
 });
+bindMenuPositioning(document);
 
 (() => {
   const burger = $('burger');
